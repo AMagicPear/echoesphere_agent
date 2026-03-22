@@ -11,12 +11,11 @@ All integers use network byte order (big-endian).
 """
 
 import asyncio
+import logging
 import struct
-import traceback
 from typing import Callable, Optional
 
-# import io
-# from PIL import Image
+logger = logging.getLogger("echoesphere.client")
 
 
 class MessageType:
@@ -50,7 +49,7 @@ class TcpClient:
             self.host, self.port
         )
         self._receive_task = asyncio.create_task(self._receive_loop())
-        print(f"[TcpClient] Connected to {self.host}:{self.port}")
+        logger.info("Connected to %s:%s", self.host, self.port)
 
     async def _receive_loop(self) -> None:
         try:
@@ -66,20 +65,20 @@ class TcpClient:
                 elif msg_type == MessageType.IMAGE:
                     self._on_image(payload)
                 else:
-                    print(f"[TcpClient] Unknown message type: {msg_type}")
+                    logger.warning("Unknown message type: %s", msg_type)
         except asyncio.IncompleteReadError:
-            print("[TcpClient] Connection closed by peer")
+            logger.info("Connection closed by peer")
         except ConnectionResetError:
-            print("[TcpClient] Connection reset")
+            logger.warning("Connection reset")
         except Exception:
-            traceback.print_exc()
+            logger.exception("Unexpected error in receive loop")
         finally:
             await self.close()
 
     async def send_text(self, text: str) -> None:
         """Send a UTF-8 text message."""
         if not self._writer:
-            print("[TcpClient] Not connected")
+            logger.warning("Not connected")
             return
         data = text.encode("utf-8")
         total_length = 1 + len(data)
@@ -90,7 +89,7 @@ class TcpClient:
     async def send_image(self, image_bytes: bytes) -> None:
         """Send raw image bytes."""
         if not self._writer:
-            print("[TcpClient] Not connected")
+            logger.warning("Not connected")
             return
         total_length = 1 + len(image_bytes)
         self._writer.write(struct.pack("!i", total_length))
@@ -111,6 +110,7 @@ class TcpClient:
 # Standalone test
 # ----------------------------------------------------------------------
 async def _test_main() -> None:
+    logging.basicConfig(level=logging.INFO)
     client = TcpClient("127.0.0.1", 65432)
     await client.connect()
 
@@ -123,7 +123,7 @@ async def _test_main() -> None:
     try:
         await asyncio.Future()
     except KeyboardInterrupt:
-        print("Interrupted")
+        logger.info("Interrupted")
     finally:
         send_task.cancel()
         await client.close()
