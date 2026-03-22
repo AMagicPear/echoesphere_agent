@@ -1,0 +1,9 @@
+[project]
+name = "echoesphere-agent"
+version = "0.1.0"
+description = "EchoSphere Agent"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pillow>=12.1.1",
+]
