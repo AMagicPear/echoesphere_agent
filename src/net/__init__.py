@@ -1,4 +1,4 @@
-from echoesphere_omni.net.client import TcpClient
-from echoesphere_omni.net.server import TcpServer
+from .client import TcpClient
+from .server import TcpServer
 
 __all__ = ["TcpClient", "TcpServer"]
