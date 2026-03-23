@@ -3,16 +3,14 @@
 定义 Agent 可调用的外部工具函数，供 VLM 通过 Tool Calling 使用。
 
 注意：
-- 灯光控制、环境效果通过树莓派 (RaspberryPi) 控制
+- 灯光控制、环境效果通过树莓派 (Raspberry Pi) 控制
 - 游戏事件通过 Unity 服务器执行
+- 路由逻辑在 run.py 的 EchoSphereServer 中处理
 """
 
 import logging
-from typing import Any, TYPE_CHECKING
 from dataclasses import dataclass
-
-if TYPE_CHECKING:
-    from .execution.tcp_clients import DeviceManager
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger("echoesphere.tools")
 
@@ -61,12 +59,11 @@ class ControlLightsTool(BaseTool):
         - brightness: 亮度，0.0-1.0 之间的浮点数
         - pattern: 灯光模式，可选值: "solid"(常亮), "pulse"(脉冲), "wave"(波浪), "flash"(闪烁), "gradient"(渐变)
 
-    注意: 此命令通过连接到树莓派来控制实际灯光设备。
+    注意: 此命令通过树莓派来控制实际灯光设备。
     """
 
     def execute(self, color: str = "#FFFFFF", brightness: float = 1.0, pattern: str = "solid", **kwargs) -> ToolResult:
         try:
-            # 验证参数
             brightness = max(0.0, min(1.0, brightness))
             if pattern not in ["solid", "pulse", "wave", "flash", "gradient"]:
                 pattern = "solid"
@@ -80,7 +77,7 @@ class ControlLightsTool(BaseTool):
                 }
             }
 
-            success = self.executor.send_to_raspberry_pi(cmd)
+            success = self.executor.execute_command(cmd)
             if success:
                 return ToolResult(
                     success=True,
@@ -88,7 +85,7 @@ class ControlLightsTool(BaseTool):
                     data={"color": color, "brightness": brightness, "pattern": pattern}
                 )
             else:
-                return ToolResult(success=False, message="发送灯光控制命令失败，树莓派可能未连接")
+                return ToolResult(success=False, message="发送灯光控制命令失败，设备可能未连接")
         except Exception as e:
             logger.exception("control_lights failed")
             return ToolResult(success=False, message=f"灯光控制失败: {e}")
@@ -118,7 +115,7 @@ class AdvanceGameChapterTool(BaseTool):
                 "params": {"chapter": chapter}
             }
 
-            success = self.executor.send_to_unity(cmd)
+            success = self.executor.execute_command(cmd)
             if success:
                 return ToolResult(
                     success=True,
@@ -166,7 +163,7 @@ class TriggerGameEventTool(BaseTool):
                 }
             }
 
-            success = self.executor.send_to_unity(cmd)
+            success = self.executor.execute_command(cmd)
             if success:
                 return ToolResult(
                     success=True,
@@ -217,7 +214,7 @@ class PlayMusicTool(BaseTool):
                 }
             }
 
-            success = self.executor.send_to_unity(cmd)
+            success = self.executor.execute_command(cmd)
             if success:
                 return ToolResult(
                     success=True,
@@ -267,7 +264,7 @@ class SetEnvironmentTool(BaseTool):
                 }
             }
 
-            success = self.executor.send_to_raspberry_pi(cmd)
+            success = self.executor.execute_command(cmd)
             if success:
                 return ToolResult(
                     success=True,
@@ -285,17 +282,28 @@ class ToolExecutor:
     """工具执行器
 
     负责注册工具并执行 VLM 调用的工具函数。
-    根据命令类型路由到不同的设备（Unity 或树莓派）。
+    命令通过回调函数路由到相应设备（在 run.py 中设置）。
     """
 
-    def __init__(self, device_manager: "DeviceManager" = None):
+    def __init__(self):
         self._tools: dict[str, BaseTool] = {}
-        self._device_manager = device_manager
+        self._command_callback: Optional[Callable[[dict], bool]] = None
         self._register_default_tools()
 
-    def set_device_manager(self, device_manager: "DeviceManager") -> None:
-        """设置设备管理器"""
-        self._device_manager = device_manager
+    def set_command_callback(self, callback: Callable[[dict], bool]) -> None:
+        """设置命令执行回调
+
+        回调函数接收命令字典，返回是否成功执行。
+        路由逻辑由调用者（如 EchoSphereServer）处理。
+        """
+        self._command_callback = callback
+
+    def execute_command(self, cmd: dict) -> bool:
+        """通过回调执行命令"""
+        if self._command_callback:
+            return self._command_callback(cmd)
+        logger.warning("No command callback configured")
+        return False
 
     def _register_default_tools(self) -> None:
         """注册默认工具"""
@@ -309,30 +317,8 @@ class ToolExecutor:
         for tool in tools:
             self._tools[tool.name] = tool
 
-    def send_to_unity(self, cmd: dict) -> bool:
-        """发送命令到 Unity 服务器"""
-        if self._device_manager:
-            return self._device_manager.send_to_unity(cmd)
-        logger.warning("No device manager configured, cannot send to Unity")
-        return False
-
-    def send_to_raspberry_pi(self, cmd: dict) -> bool:
-        """发送命令到树莓派"""
-        if self._device_manager:
-            return self._device_manager.send_to_raspberry_pi(cmd)
-        logger.warning("No device manager configured, cannot send to Raspberry Pi")
-        return False
-
     def execute_tool(self, tool_name: str, arguments: dict) -> ToolResult:
-        """执行指定的工具
-
-        Args:
-            tool_name: 工具名称
-            arguments: 工具参数
-
-        Returns:
-            ToolResult: 执行结果
-        """
+        """执行指定的工具"""
         tool = self._tools.get(tool_name)
         if not tool:
             return ToolResult(success=False, message=f"未知工具: {tool_name}")

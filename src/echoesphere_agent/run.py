@@ -1,15 +1,19 @@
 """EchoSphere Agent 主程序入口
 
 TCP Server 架构：
-- 接收来自 Unity 客户端的游戏状态事件
-- 接收来自 MediaPipe 模块的感知事件（手势、面部情绪）
-- 通过 DecisionAgent 进行智能决策
-- 将执行命令路由到相应设备（Unity / 树莓派）
+- 接收来自 Unity、MediaPipe 和 树莓派 的 TCP 连接
+- 客户端连接后发送注册消息确认身份
+- 当所有必需客户端连接后，Agent 开始运作
 
 协议：长度前缀二进制协议
 - 4 bytes (big-endian int): payload length
-- 1 byte: message type (0x00=TEXT, 0x01=IMAGE, 0x02=COMMAND)
-- N bytes: payload (JSON for TEXT/COMMAND, raw bytes for IMAGE)
+- 1 byte: message type (0x00=TEXT, 0x01=IMAGE, 0x02=COMMAND, 0x03=REGISTER)
+- N bytes: payload (JSON for TEXT/COMMAND/REGISTER, raw bytes for IMAGE)
+
+注册消息格式：
+{"type": "register", "client_type": "mediapipe"}        # MediaPipe (手势+面部)
+{"type": "register", "client_type": "unity"}             # Unity 客户端
+{"type": "register", "client_type": "raspberry_pi"}     # 树莓派设备
 """
 
 import argparse
@@ -19,18 +23,15 @@ import logging
 import signal
 import struct
 import os
-import sys
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Callable
 
 from dotenv import load_dotenv
 
-# 加载 .env 文件
 load_dotenv()
 
 from .agent import DecisionAgent
 from .events import PerceptionEvent, EventSource, PerceptionEventType
-from .execution.tcp_clients import DeviceManager, UnityClient, RaspberryPiClient
 
 logger = logging.getLogger("echoesphere.main")
 
@@ -39,25 +40,32 @@ class MessageType:
     TEXT = 0x00
     IMAGE = 0x01
     COMMAND = 0x02
+    REGISTER = 0x03
 
 
-class PerceptionClientConnection:
-    """感知模块客户端连接（如 MediaPipe 模块）"""
+class ClientType:
+    MEDIAPIPE = "mediapipe"        # MediaPipe (手势+面部)
+    UNITY = "unity"
+    RASPBERRY_PI = "raspberry_pi"
 
+
+class RegisteredClient:
     def __init__(
         self,
+        client_id: str,
+        client_type: str,
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
-        client_id: str,
-        on_event: callable,
     ):
+        self.client_id = client_id
+        self.client_type = client_type
         self.reader = reader
         self.writer = writer
-        self.client_id = client_id
-        self._on_event = on_event
         self._receive_task: Optional[asyncio.Task] = None
+        self._message_handler: Optional[Callable] = None
 
-    async def start(self) -> None:
+    async def start(self, message_handler: Callable) -> None:
+        self._message_handler = message_handler
         self._receive_task = asyncio.create_task(self._receive_loop())
 
     async def _receive_loop(self) -> None:
@@ -69,32 +77,19 @@ class PerceptionClientConnection:
                 msg_type = data_with_type[0]
                 payload = data_with_type[1:]
 
-                if msg_type == MessageType.TEXT:
+                if msg_type in (MessageType.TEXT, MessageType.COMMAND, MessageType.REGISTER):
                     message = payload.decode("utf-8")
-                    await self._handle_message(message)
+                    if self._message_handler:
+                        await self._message_handler(self, message)
                 elif msg_type == MessageType.IMAGE:
                     logger.debug(f"Image from {self.client_id}: {len(payload)} bytes")
         except asyncio.IncompleteReadError:
-            logger.info(f"Perception client disconnected: {self.client_id}")
+            logger.info(f"Client disconnected: {self.client_id}")
         except Exception:
-            logger.exception(f"Error from perception client {self.client_id}")
+            logger.exception(f"Error from client {self.client_id}")
         finally:
             self.writer.close()
             await self.writer.wait_closed()
-
-    async def _handle_message(self, message: str) -> None:
-        try:
-            data = json.loads(message)
-            event = PerceptionEvent(
-                source=EventSource(data.get("source", "unknown")),
-                event_type=PerceptionEventType(data.get("event", "unknown")),
-                data=data.get("data", {}),
-                timestamp_ms=data.get("timestamp_ms", 0),
-                screenshot=data.get("screenshot"),
-            )
-            self._on_event(event)
-        except (json.JSONDecodeError, KeyError) as e:
-            logger.warning(f"Invalid perception event from {self.client_id}: {e}")
 
     async def send_text(self, text: str) -> None:
         data = text.encode("utf-8")
@@ -103,40 +98,38 @@ class PerceptionClientConnection:
         self.writer.write(bytes([MessageType.TEXT]) + data)
         await self.writer.drain()
 
+    async def send_command(self, cmd: dict) -> None:
+        json_data = json.dumps(cmd, ensure_ascii=False)
+        data = json_data.encode("utf-8")
+        total_length = 1 + len(data)
+        self.writer.write(struct.pack("!i", total_length))
+        self.writer.write(bytes([MessageType.COMMAND]) + data)
+        await self.writer.drain()
+
     def cancel(self) -> None:
         if self._receive_task:
             self._receive_task.cancel()
 
 
 class EchoSphereServer:
-    """EchoSphere Agent 主服务器
-
-    接收来自感知模块和 Unity 的事件，通过 DecisionAgent 决策后路由命令到设备。
-    """
+    REQUIRED_CLIENTS = {
+        ClientType.MEDIAPIPE,
+        ClientType.UNITY,
+    }
+    OPTIONAL_CLIENTS = {
+        ClientType.RASPBERRY_PI,
+    }
 
     def __init__(
         self,
         host: str = "0.0.0.0",
         port: int = 65432,
-        unity_host: str = "127.0.0.1",
-        unity_port: int = 65433,
-        raspberry_pi_host: str = "192.168.1.100",
-        raspberry_pi_port: int = 65434,
     ):
         self.host = host
         self.port = port
-        self.unity_host = unity_host
-        self.unity_port = unity_port
-        self.raspberry_pi_host = raspberry_pi_host
-        self.raspberry_pi_port = raspberry_pi_port
 
         self._server: Optional[asyncio.Server] = None
-        self._perception_clients: dict[str, PerceptionClientConnection] = {}
-
-        # 设备管理器
-        self.device_manager = DeviceManager()
-        self.device_manager.register_unity(unity_host, unity_port)
-        self.device_manager.register_raspberry_pi(raspberry_pi_host, raspberry_pi_port)
+        self._clients: dict[str, RegisteredClient] = {}
 
         # 决策 Agent
         api_key = os.getenv("MINIMAX_API_KEY")
@@ -145,107 +138,212 @@ class EchoSphereServer:
             model_name="gpt-4o",
             api_key=api_key,
             api_base=api_base,
-            device_manager=self.device_manager,
         )
 
         self._running = False
+        self._agent_active = False
+
+    @property
+    def connected_clients(self) -> set:
+        return {c.client_type for c in self._clients.values()}
+
+    @property
+    def required_clients_connected(self) -> bool:
+        return self.REQUIRED_CLIENTS.issubset(self.connected_clients)
 
     async def start(self) -> None:
-        """启动服务器"""
         self._running = True
 
-        # 启动 TCP 服务器（接收感知模块连接）
         self._server = await asyncio.start_server(
-            self._handle_perception_client, self.host, self.port
+            self._handle_client, self.host, self.port
         )
         logger.info(f"EchoSphere Server listening on {self.host}:{self.port}")
+        logger.info("EchoSphere Agent started, waiting for clients...")
+        self._log_status()
 
-        # 连接外部设备
-        results = await self.device_manager.connect_all()
-        for name, connected in results.items():
-            status = "connected" if connected else "failed"
-            logger.info(f"Device {name}: {status}")
-
-        # 设置 Unity 事件回调
-        if self.device_manager.unity:
-            self.device_manager.unity.set_game_event_callback(self._on_unity_event)
-
-        # 启动 Unity 监听（作为客户端连接到 Unity 服务器）
-        asyncio.create_task(self._connect_to_unity())
-
-        logger.info("EchoSphere Agent started")
-
-    async def _connect_to_unity(self) -> None:
-        """作为 TCP 客户端连接到 Unity 服务器"""
-        if self.device_manager.unity:
-            await self.device_manager.unity.start_listening()
-
-    async def _handle_perception_client(
+    async def _handle_client(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
-        """处理感知模块客户端连接"""
         client_addr = writer.get_extra_info("peername")
-        client_id = f"perception_{client_addr[0]}:{client_addr[1]}"
+        temp_id = f"unknown_{client_addr[0]}:{client_addr[1]}"
 
-        conn = PerceptionClientConnection(
-            reader, writer, client_id, on_event=self._on_perception_event
-        )
-        self._perception_clients[client_id] = conn
-        logger.info(f"Perception client connected: {client_id}")
+        conn = RegisteredClient(temp_id, "unknown", reader, writer)
+        self._clients[temp_id] = conn
+        logger.info(f"New connection from {temp_id}, waiting for registration...")
 
-        await conn.start()
+        await conn.start(self._handle_client_message)
 
         try:
             await conn._receive_task
         finally:
-            conn.cancel()
-            self._perception_clients.pop(client_id, None)
+            self._clients.pop(temp_id, None)
+            self._log_status()
 
-    def _on_perception_event(self, event: PerceptionEvent) -> None:
-        """处理感知事件"""
+            if self.required_clients_connected is False and self._agent_active:
+                self._agent_active = False
+                logger.info("Required client disconnected, deactivating Agent")
+
+    async def _handle_client_message(self, client: RegisteredClient, message: str) -> None:
+        try:
+            data = json.loads(message)
+
+            if data.get("type") == "register":
+                await self._handle_registration(client, data)
+                return
+
+            if not self._agent_active:
+                logger.debug(f"Agent not active, ignoring message from {client.client_id}")
+                return
+
+            if client.client_type == ClientType.MEDIAPIPE:
+                self._handle_perception_event(client, data)
+            elif client.client_type == ClientType.UNITY:
+                self._handle_unity_event(client, data)
+            elif client.client_type == ClientType.RASPBERRY_PI:
+                logger.debug(f"Message from Raspberry Pi: {data}")
+
+        except json.JSONDecodeError:
+            logger.warning(f"Invalid JSON from {client.client_id}: {message}")
+
+    async def _handle_registration(self, client: RegisteredClient, data: dict) -> None:
+        client_type = data.get("client_type", "unknown")
+
+        if client_type == "mediapipe":
+            client.client_type = ClientType.MEDIAPIPE
+        elif client_type == "unity":
+            client.client_type = ClientType.UNITY
+        elif client_type == "raspberry_pi":
+            client.client_type = ClientType.RASPBERRY_PI
+        else:
+            logger.warning(f"Unknown client type: {client_type}")
+            return
+
+        old_id = client.client_id
+        client.client_id = f"{client.client_type}_{client.writer.get_extra_info('peername')[0]}"
+        self._clients.pop(old_id, None)
+        self._clients[client.client_id] = client
+
+        logger.info(f"Client registered: {client.client_id} ({client.client_type})")
+
+        await client.send_text(json.dumps({
+            "type": "register_ack",
+            "client_type": client.client_type,
+            "status": "ok"
+        }))
+
+        self._log_status()
+        self._check_agent_activation()
+
+    def _check_agent_activation(self) -> None:
+        if self._agent_active:
+            return
+
+        if self.required_clients_connected:
+            self._agent_active = True
+            logger.info("=" * 50)
+            logger.info("All required clients connected! Agent is now ACTIVE")
+            logger.info("=" * 50)
+            self.agent.set_command_handler(self._send_command_to_device)
+
+    def _handle_perception_event(self, client: RegisteredClient, data: dict) -> None:
+        # 从事件数据中获取 source (hand/face)，因为 mediapipe 模块同时发送两种事件
+        source_str = data.get("source", "hand")
+        if source_str == "face":
+            source = EventSource.FACE
+        else:
+            source = EventSource.HAND
+
+        event = PerceptionEvent(
+            source=source,
+            event_type=PerceptionEventType(data.get("event", "unknown")),
+            data=data.get("data", {}),
+            timestamp_ms=data.get("timestamp_ms", 0),
+            screenshot=data.get("screenshot"),
+        )
+
         logger.info(f"Perception event: [{event.source_name}] {event.event_name}")
         decision = self.agent.process_event(event)
-        if decision:
+        if decision and decision.tool_calls:
             logger.info(f"Decision: {decision.tool_calls}")
 
-    def _on_unity_event(self, data: dict) -> None:
-        """处理 Unity 游戏事件"""
-        try:
-            event = PerceptionEvent(
-                source=EventSource.UNITY,
-                event_type=PerceptionEventType(data.get("event", "game_state_update")),
-                data=data.get("data", data),
-                timestamp_ms=data.get("timestamp_ms", 0),
-                screenshot=data.get("game_screenshot"),
-            )
-            logger.info(f"Unity event: {event.event_name}")
-            decision = self.agent.process_event(event)
-            if decision:
-                logger.info(f"Decision: {decision.tool_calls}")
-        except Exception:
-            logger.exception("Error handling Unity event")
+    def _handle_unity_event(self, client: RegisteredClient, data: dict) -> None:
+        event = PerceptionEvent(
+            source=EventSource.UNITY,
+            event_type=PerceptionEventType(data.get("event", "game_state_update")),
+            data=data.get("data", data),
+            timestamp_ms=data.get("timestamp_ms", 0),
+            screenshot=data.get("game_screenshot"),
+        )
 
-    async def broadcast_to_perception_clients(self, message: str) -> None:
-        """广播消息到所有感知客户端"""
-        for conn in self._perception_clients.values():
-            try:
-                await conn.send_text(message)
-            except Exception:
-                logger.exception(f"Failed to broadcast to {conn.client_id}")
+        logger.info(f"Unity event: {event.event_name}")
+        decision = self.agent.process_event(event)
+        if decision and decision.tool_calls:
+            logger.info(f"Decision: {decision.tool_calls}")
+
+    async def _send_command_to_device(self, cmd: dict) -> bool:
+        cmd_type = cmd.get("cmd", "")
+
+        UNITY_COMMANDS = {
+            "advance_game_chapter",
+            "trigger_game_event",
+            "play_music",
+        }
+
+        PI_COMMANDS = {
+            "control_lights",
+            "set_environment",
+        }
+
+        if cmd_type in UNITY_COMMANDS:
+            unity_clients = [
+                c for c in self._clients.values()
+                if c.client_type == ClientType.UNITY
+            ]
+            if unity_clients:
+                for unity in unity_clients:
+                    await unity.send_command(cmd)
+                logger.info(f"Command sent to Unity: {cmd_type}")
+                return True
+            else:
+                logger.warning("Unity client not connected")
+                return False
+
+        elif cmd_type in PI_COMMANDS:
+            pi_clients = [
+                c for c in self._clients.values()
+                if c.client_type == ClientType.RASPBERRY_PI
+            ]
+            if pi_clients:
+                for pi in pi_clients:
+                    await pi.send_command(cmd)
+                logger.info(f"Command sent to Raspberry Pi: {cmd_type}")
+                return True
+            else:
+                logger.warning("Raspberry Pi client not connected")
+                return False
+
+        else:
+            logger.warning(f"Unknown command type: {cmd_type}")
+            return False
+
+    def _log_status(self) -> None:
+        required = self.REQUIRED_CLIENTS - self.connected_clients
+        optional = self.OPTIONAL_CLIENTS - self.connected_clients
+
+        logger.info("--- Client Status ---")
+        logger.info(f"Required (not connected): {required if required else 'none'}")
+        logger.info(f"Optional (not connected): {optional if optional else 'none'}")
+        logger.info(f"Agent status: {'ACTIVE' if self._agent_active else 'INACTIVE'}")
+        logger.info("----------------------")
 
     async def stop(self) -> None:
-        """停止服务器"""
         logger.info("Stopping EchoSphere Agent...")
         self._running = False
+        self._agent_active = False
 
-        # 取消感知客户端连接
-        for conn in list(self._perception_clients.values()):
+        for conn in list(self._clients.values()):
             conn.cancel()
 
-        # 断开设备连接
-        await self.device_manager.disconnect_all()
-
-        # 关闭服务器
         if self._server:
             self._server.close()
             await self._server.wait_closed()
@@ -258,35 +356,23 @@ class EchoSphereServer:
 
 
 async def run_main() -> None:
-    """主运行函数"""
     parser = argparse.ArgumentParser(description="EchoSphere Agent - 多模态交互决策系统")
     parser.add_argument("--host", default="0.0.0.0", help="服务器监听地址")
     parser.add_argument("--port", type=int, default=65432, help="服务器监听端口")
-    parser.add_argument("--unity-host", default="127.0.0.1", help="Unity 服务器地址")
-    parser.add_argument("--unity-port", type=int, default=65433, help="Unity 服务器端口")
-    parser.add_argument("--pi-host", default="192.168.1.100", help="树莓派地址")
-    parser.add_argument("--pi-port", type=int, default=65434, help="树莓派端口")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
 
     args = parser.parse_args()
 
-    # 配置日志
     logging.basicConfig(
         level=getattr(logging, args.log_level),
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
 
-    # 创建并启动服务器
     server = EchoSphereServer(
         host=args.host,
         port=args.port,
-        unity_host=args.unity_host,
-        unity_port=args.unity_port,
-        raspberry_pi_host=args.pi_host,
-        raspberry_pi_port=args.pi_port,
     )
 
-    # 处理信号
     loop = asyncio.get_event_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, lambda: asyncio.create_task(server.stop()))
@@ -303,7 +389,6 @@ async def run_main() -> None:
 
 
 def main() -> None:
-    """入口点"""
     asyncio.run(run_main())
 
 

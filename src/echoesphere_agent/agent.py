@@ -6,10 +6,9 @@
 import logging
 import os
 from datetime import datetime
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, Callable
 
 from smolagents import (
-    Agent,
     ToolCallingAgent,
     Model,
     LiteLLMModel,
@@ -18,9 +17,6 @@ from smolagents import (
 from .events import PerceptionEvent, Decision, GAME_EVENTS, MUSIC_TRACKS, ENVIRONMENT_EFFECTS
 from .memory import ShortTermMemory
 from .tools import ToolExecutor
-
-if TYPE_CHECKING:
-    from .execution.tcp_clients import DeviceManager
 
 logger = logging.getLogger("echoesphere.agent")
 
@@ -89,15 +85,9 @@ class DecisionAgent:
         model_name: str = "gpt-4o",
         api_key: Optional[str] = None,
         api_base: Optional[str] = None,
-        device_manager: Optional["DeviceManager"] = None,
     ):
-        # 初始化设备管理器
-        self.device_manager = device_manager
-
         # 初始化工具执行器
         self.tool_executor = ToolExecutor()
-        if device_manager:
-            self.tool_executor.set_device_manager(device_manager)
 
         # 初始化短期记忆
         self.memory = ShortTermMemory(max_history=20)
@@ -115,11 +105,9 @@ class DecisionAgent:
         api_base: Optional[str],
     ) -> Model:
         """初始化 VLM 模型"""
-        # 优先使用环境变量中的配置
         api_key = api_key or os.getenv("MINIMAX_API_KEY")
         api_base = api_base or os.getenv("MINIMAX_API_BASE")
 
-        # 使用 LiteLLMModel 支持多种后端
         return LiteLLMModel(
             model_id=model_name,
             api_key=api_key,
@@ -128,9 +116,8 @@ class DecisionAgent:
             max_tokens=1024,
         )
 
-    def _init_agent(self) -> Agent:
+    def _init_agent(self) -> ToolCallingAgent:
         """初始化 smolagents Agent"""
-        # 构建系统提示词
         tool_schemas = "\n".join([
             f"- {t['name']}: {t['description']}"
             for t in self.tool_executor.get_tool_schemas()
@@ -143,7 +130,6 @@ class DecisionAgent:
             environment_effects="\n".join([f"- {k}: {v}" for k, v in ENVIRONMENT_EFFECTS.items()]),
         )
 
-        # 创建 Agent
         agent = ToolCallingAgent(
             model=self.model,
             tools=list(self.tool_executor._tools.values()),
@@ -154,10 +140,13 @@ class DecisionAgent:
 
         return agent
 
-    def set_device_manager(self, device_manager: "DeviceManager") -> None:
-        """设置设备管理器"""
-        self.device_manager = device_manager
-        self.tool_executor.set_device_manager(device_manager)
+    def set_command_handler(self, handler: Callable[[dict], bool]) -> None:
+        """设置命令处理器
+
+        Args:
+            handler: 回调函数，接收命令字典，返回是否成功
+        """
+        self.tool_executor.set_command_callback(handler)
 
     def process_event(self, event: PerceptionEvent) -> Optional[Decision]:
         """处理感知事件并做出决策
