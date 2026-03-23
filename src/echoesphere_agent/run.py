@@ -135,7 +135,7 @@ class EchoSphereServer:
         api_key = os.getenv("MINIMAX_API_KEY")
         api_base = os.getenv("MINIMAX_API_BASE")
         self.agent = DecisionAgent(
-            model_name="gpt-4o",
+            model_name="minimax/MiniMax-M2.7",
             api_key=api_key,
             api_base=api_base,
         )

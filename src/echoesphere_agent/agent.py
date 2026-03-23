@@ -82,7 +82,7 @@ class DecisionAgent:
 
     def __init__(
         self,
-        model_name: str = "gpt-4o",
+        model_name: str = "minimax/MiniMax-M2.7",
         api_key: Optional[str] = None,
         api_base: Optional[str] = None,
     ):
