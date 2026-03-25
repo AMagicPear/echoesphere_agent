@@ -132,10 +132,10 @@ class EchoSphereServer:
         self._clients: dict[str, RegisteredClient] = {}
 
         # 决策 Agent
-        api_key = os.getenv("MINIMAX_API_KEY")
-        api_base = os.getenv("MINIMAX_API_BASE")
+        api_key = os.getenv("DASHSCOPE_API_KEY")
+        api_base = os.getenv("DASHSCOPE_API_BASE")
         self.agent = DecisionAgent(
-            model_name="minimax/MiniMax-M2.7",
+            model_name="dashscope/qwen3.5-plus",
             api_key=api_key,
             api_base=api_base,
         )

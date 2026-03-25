@@ -82,7 +82,7 @@ class DecisionAgent:
 
     def __init__(
         self,
-        model_name: str = "minimax/MiniMax-M2.7",
+        model_name: str = "dashscope/qwen3.5-plus",
         api_key: Optional[str] = None,
         api_base: Optional[str] = None,
     ):
@@ -105,8 +105,8 @@ class DecisionAgent:
         api_base: Optional[str],
     ) -> Model:
         """初始化 VLM 模型"""
-        api_key = api_key or os.getenv("MINIMAX_API_KEY")
-        api_base = api_base or os.getenv("MINIMAX_API_BASE")
+        api_key = api_key or os.getenv("DASHSCOPE_API_KEY")
+        api_base = api_base or os.getenv("DASHSCOPE_API_BASE")
 
         return LiteLLMModel(
             model_id=model_name,
@@ -114,6 +114,7 @@ class DecisionAgent:
             base_url=api_base,
             temperature=0.7,
             max_tokens=1024,
+            tool_choice="auto",
         )
 
     def _init_agent(self) -> ToolCallingAgent:
@@ -133,8 +134,8 @@ class DecisionAgent:
         agent = ToolCallingAgent(
             model=self.model,
             tools=list(self.tool_executor._tools.values()),
-            system_prompt=system_prompt,
-            max_iterations=3,
+            instructions=system_prompt,
+            max_steps=3,
             verbosity_level=1,
         )
 
