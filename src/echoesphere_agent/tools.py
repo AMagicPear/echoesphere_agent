@@ -60,6 +60,7 @@ class ControlLightsTool(SmolTool):
         self.executor = executor
 
     def forward(self, color: str = "#FFFFFF", brightness: float = 1.0, pattern: str = "solid") -> dict:
+        logger.info(f"control_lights called: color={color}, brightness={brightness}, pattern={pattern}")
         try:
             brightness = max(0.0, min(1.0, brightness))
             if pattern not in ["solid", "pulse", "wave", "flash", "gradient"]:
@@ -76,13 +77,17 @@ class ControlLightsTool(SmolTool):
 
             success = self.executor.execute_command(cmd)
             if success:
-                return ToolResult(
+                result = ToolResult(
                     success=True,
                     message=f"灯光已设置为: 颜色={color}, 亮度={brightness}, 模式={pattern}",
                     data={"color": color, "brightness": brightness, "pattern": pattern}
                 ).to_dict()
+                logger.info(f"control_lights result: {result}")
+                return result
             else:
-                return ToolResult(success=False, message="发送灯光控制命令失败，设备可能未连接").to_dict()
+                result = ToolResult(success=False, message="发送灯光控制命令失败，设备可能未连接").to_dict()
+                logger.warning(f"control_lights failed: device not connected")
+                return result
         except Exception as e:
             logger.exception("control_lights failed")
             return ToolResult(success=False, message=f"灯光控制失败: {e}").to_dict()
@@ -110,9 +115,12 @@ class AdvanceGameChapterTool(SmolTool):
         self.executor = executor
 
     def forward(self, chapter: int) -> dict:
+        logger.info(f"advance_game_chapter called: chapter={chapter}")
         try:
             if chapter < 1:
-                return ToolResult(success=False, message="章节号必须大于 0").to_dict()
+                result = ToolResult(success=False, message="章节号必须大于 0").to_dict()
+                logger.warning(f"advance_game_chapter failed: invalid chapter {chapter}")
+                return result
 
             cmd = {
                 "cmd": "advance_game_chapter",
@@ -121,13 +129,17 @@ class AdvanceGameChapterTool(SmolTool):
 
             success = self.executor.execute_command(cmd)
             if success:
-                return ToolResult(
+                result = ToolResult(
                     success=True,
                     message=f"游戏已推进到章节 {chapter}",
                     data={"chapter": chapter}
                 ).to_dict()
+                logger.info(f"advance_game_chapter result: {result}")
+                return result
             else:
-                return ToolResult(success=False, message="发送章节推进命令失败，Unity可能未连接").to_dict()
+                result = ToolResult(success=False, message="发送章节推进命令失败，Unity可能未连接").to_dict()
+                logger.warning(f"advance_game_chapter failed: Unity not connected")
+                return result
         except Exception as e:
             logger.exception("advance_game_chapter failed")
             return ToolResult(success=False, message=f"章节推进失败: {e}").to_dict()
@@ -163,9 +175,12 @@ class TriggerGameEventTool(SmolTool):
         self.executor = executor
 
     def forward(self, event_id: str, params: dict | None = None) -> dict:
+        logger.info(f"trigger_game_event called: event_id={event_id}, params={params}")
         try:
             if not event_id:
-                return ToolResult(success=False, message="事件ID不能为空").to_dict()
+                result = ToolResult(success=False, message="事件ID不能为空").to_dict()
+                logger.warning(f"trigger_game_event failed: empty event_id")
+                return result
 
             cmd = {
                 "cmd": "trigger_game_event",
@@ -177,13 +192,17 @@ class TriggerGameEventTool(SmolTool):
 
             success = self.executor.execute_command(cmd)
             if success:
-                return ToolResult(
+                result = ToolResult(
                     success=True,
                     message=f"已触发游戏事件: {event_id}",
                     data={"event_id": event_id, "params": params}
                 ).to_dict()
+                logger.info(f"trigger_game_event result: {result}")
+                return result
             else:
-                return ToolResult(success=False, message="发送游戏事件命令失败，Unity可能未连接").to_dict()
+                result = ToolResult(success=False, message="发送游戏事件命令失败，Unity可能未连接").to_dict()
+                logger.warning(f"trigger_game_event failed: Unity not connected")
+                return result
         except Exception as e:
             logger.exception("trigger_game_event failed")
             return ToolResult(success=False, message=f"游戏事件触发失败: {e}").to_dict()
@@ -221,10 +240,13 @@ class PlayMusicTool(SmolTool):
         self.executor = executor
 
     def forward(self, track: str, volume: float = 0.7) -> dict:
+        logger.info(f"play_music called: track={track}, volume={volume}")
         try:
             volume = max(0.0, min(1.0, volume))
             if not track:
-                return ToolResult(success=False, message="曲目名称不能为空").to_dict()
+                result = ToolResult(success=False, message="曲目名称不能为空").to_dict()
+                logger.warning(f"play_music failed: empty track")
+                return result
 
             cmd = {
                 "cmd": "play_music",
@@ -236,13 +258,17 @@ class PlayMusicTool(SmolTool):
 
             success = self.executor.execute_command(cmd)
             if success:
-                return ToolResult(
+                result = ToolResult(
                     success=True,
                     message=f"正在播放: {track} (音量: {volume})",
                     data={"track": track, "volume": volume}
                 ).to_dict()
+                logger.info(f"play_music result: {result}")
+                return result
             else:
-                return ToolResult(success=False, message="发送音乐播放命令失败，Unity可能未连接").to_dict()
+                result = ToolResult(success=False, message="发送音乐播放命令失败，Unity可能未连接").to_dict()
+                logger.warning(f"play_music failed: Unity not connected")
+                return result
         except Exception as e:
             logger.exception("play_music failed")
             return ToolResult(success=False, message=f"音乐播放失败: {e}").to_dict()
@@ -279,10 +305,13 @@ class SetEnvironmentTool(SmolTool):
         self.executor = executor
 
     def forward(self, effect: str, intensity: float = 0.5) -> dict:
+        logger.info(f"set_environment called: effect={effect}, intensity={intensity}")
         try:
             intensity = max(0.0, min(1.0, intensity))
             if not effect:
-                return ToolResult(success=False, message="效果类型不能为空").to_dict()
+                result = ToolResult(success=False, message="效果类型不能为空").to_dict()
+                logger.warning(f"set_environment failed: empty effect")
+                return result
 
             cmd = {
                 "cmd": "set_environment",
@@ -294,13 +323,17 @@ class SetEnvironmentTool(SmolTool):
 
             success = self.executor.execute_command(cmd)
             if success:
-                return ToolResult(
+                result = ToolResult(
                     success=True,
                     message=f"已设置环境效果: {effect} (强度: {intensity})",
                     data={"effect": effect, "intensity": intensity}
                 ).to_dict()
+                logger.info(f"set_environment result: {result}")
+                return result
             else:
-                return ToolResult(success=False, message="发送环境效果命令失败，树莓派可能未连接").to_dict()
+                result = ToolResult(success=False, message="发送环境效果命令失败，树莓派可能未连接").to_dict()
+                logger.warning(f"set_environment failed: Raspberry Pi not connected")
+                return result
         except Exception as e:
             logger.exception("set_environment failed")
             return ToolResult(success=False, message=f"环境效果设置失败: {e}").to_dict()

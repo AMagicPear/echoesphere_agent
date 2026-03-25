@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Optional, Callable
 
 from smolagents import (
-    ToolCallingAgent,
+    CodeAgent,
     Model,
     LiteLLMModel,
 )
@@ -25,13 +25,13 @@ logger = logging.getLogger("echoesphere.agent")
 SYSTEM_PROMPT = """你是一个展览多模态交互系统的智能决策Agent。
 
 ## 你的职责
-根据玩家当前的手势、面部情绪以及游戏状态，自主选择调用合适的工具函数，实现智能化的实时响应。
+根据玩家当前的手势、面部情绪以及游戏状态，编写 Python 代码调用工具函数，实现智能化的实时响应。
 
 ## 系统架构说明
 - 灯光控制、环境效果 -> 通过树莓派 (Raspberry Pi) 控制实际物理设备
 - 游戏事件、章节推进、音乐播放 -> 通过 Unity 服务器控制游戏
 
-## 可用工具
+## 可用工具（Python 函数）
 {tool_schemas}
 
 ## 事件类型参考
@@ -70,7 +70,11 @@ SYSTEM_PROMPT = """你是一个展览多模态交互系统的智能决策Agent�
 5. **上下文连贯**: 利用短期记忆理解连续交互状态
 
 ## 输出格式
-请直接调用合适的工具函数。如果不需要调用任何工具，请回复"观察中..."。
+请使用 Python 代码调用工具函数。例如：
+>>> control_lights(color="#FF5733", brightness=0.8, pattern="pulse")
+>>> trigger_game_event(event_id="lightning", params=None)
+
+如果不需要调用任何工具，直接输出 'pass'。
 """
 
 
@@ -117,7 +121,7 @@ class DecisionAgent:
             tool_choice="auto",
         )
 
-    def _init_agent(self) -> ToolCallingAgent:
+    def _init_agent(self) -> CodeAgent:
         """初始化 smolagents Agent"""
         tool_schemas = "\n".join([
             f"- {t['name']}: {t['description']}"
@@ -131,12 +135,12 @@ class DecisionAgent:
             environment_effects="\n".join([f"- {k}: {v}" for k, v in ENVIRONMENT_EFFECTS.items()]),
         )
 
-        agent = ToolCallingAgent(
+        agent = CodeAgent(
             model=self.model,
             tools=list(self.tool_executor._tools.values()),
             instructions=system_prompt,
             max_steps=3,
-            verbosity_level=1,
+            additional_authorized_imports=["json", "logging"],
         )
 
         return agent
@@ -224,23 +228,16 @@ class DecisionAgent:
         logger.info(f"Making decision with context: {context[:500]}...")
 
         try:
-            # 调用 Agent 获取响应
+            # 调用 Agent 获取响应 (CodeAgent 会自动执行工具)
             response = self.agent.run(context)
 
-            # 解析响应中的工具调用
-            tool_calls = self._parse_agent_response(response)
-
             decision.reasoning = response
-            decision.tool_calls = tool_calls
+            decision.tool_calls = []  # CodeAgent 自动执行，无需手动解析
 
             # 添加决策到记忆
             self.memory.add_decision(decision)
 
-            # 记录决策
-            if tool_calls:
-                logger.info(f"Decision made: {[c.get('name') for c in tool_calls]}")
-            else:
-                logger.debug("No tool calls in decision")
+            logger.info(f"Decision made: {response[:200]}...")
 
         except Exception as e:
             logger.exception("Decision failed")
@@ -265,24 +262,6 @@ class DecisionAgent:
         parts.append("\n请根据以上上下文，选择合适的工具函数进行响应。")
 
         return "\n".join(parts)
-
-    def _parse_agent_response(self, response: str) -> list[dict]:
-        """解析 Agent 响应中的工具调用"""
-        tool_calls = []
-
-        # 尝试从响应中提取工具调用信息
-        if "control_lights" in response.lower():
-            tool_calls.append({"name": "control_lights"})
-        if "advance_game_chapter" in response.lower():
-            tool_calls.append({"name": "advance_game_chapter"})
-        if "trigger_game_event" in response.lower():
-            tool_calls.append({"name": "trigger_game_event"})
-        if "play_music" in response.lower():
-            tool_calls.append({"name": "play_music"})
-        if "set_environment" in response.lower():
-            tool_calls.append({"name": "set_environment"})
-
-        return tool_calls
 
     def get_memory(self) -> ShortTermMemory:
         """获取记忆模块"""
