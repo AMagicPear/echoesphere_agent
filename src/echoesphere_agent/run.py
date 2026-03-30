@@ -23,18 +23,18 @@ import logging
 import signal
 import struct
 import os
-from datetime import datetime
 from typing import Optional, Callable
-
-from dotenv import load_dotenv
-
-load_dotenv()
-
 from .agent import DecisionAgent
 from .events import PerceptionEvent, EventSource, PerceptionEventType
+from dotenv import load_dotenv
+from phoenix.otel import register
+from openinference.instrumentation.smolagents import SmolagentsInstrumentor
 
+load_dotenv()
 logger = logging.getLogger("echoesphere.main")
 
+register(project_name="echoesphere-debug", set_global_tracer_provider=True)
+SmolagentsInstrumentor().instrument()
 
 class MessageType:
     TEXT = 0x00
@@ -44,7 +44,7 @@ class MessageType:
 
 
 class ClientType:
-    MEDIAPIPE = "mediapipe"        # MediaPipe (手势+面部)
+    MEDIAPIPE = "mediapipe"  # MediaPipe (手势+面部)
     UNITY = "unity"
     RASPBERRY_PI = "raspberry_pi"
 
@@ -77,7 +77,11 @@ class RegisteredClient:
                 msg_type = data_with_type[0]
                 payload = data_with_type[1:]
 
-                if msg_type in (MessageType.TEXT, MessageType.COMMAND, MessageType.REGISTER):
+                if msg_type in (
+                    MessageType.TEXT,
+                    MessageType.COMMAND,
+                    MessageType.REGISTER,
+                ):
                     message = payload.decode("utf-8")
                     if self._message_handler:
                         await self._message_handler(self, message)
@@ -135,7 +139,7 @@ class EchoSphereServer:
         api_key = os.getenv("DASHSCOPE_API_KEY")
         api_base = os.getenv("DASHSCOPE_API_BASE")
         self.agent = DecisionAgent(
-            model_name="dashscope/qwen3.5-plus",
+            model_id="dashscope/qwen3.5-plus",
             api_key=api_key,
             api_base=api_base,
         )
@@ -183,7 +187,9 @@ class EchoSphereServer:
                 self._agent_active = False
                 logger.info("Required client disconnected, deactivating Agent")
 
-    async def _handle_client_message(self, client: RegisteredClient, message: str) -> None:
+    async def _handle_client_message(
+        self, client: RegisteredClient, message: str
+    ) -> None:
         try:
             data = json.loads(message)
 
@@ -192,7 +198,9 @@ class EchoSphereServer:
                 return
 
             if not self._agent_active:
-                logger.debug(f"Agent not active, ignoring message from {client.client_id}")
+                logger.debug(
+                    f"Agent not active, ignoring message from {client.client_id}"
+                )
                 return
 
             if client.client_type == ClientType.MEDIAPIPE:
@@ -219,17 +227,23 @@ class EchoSphereServer:
             return
 
         old_id = client.client_id
-        client.client_id = f"{client.client_type}_{client.writer.get_extra_info('peername')[0]}"
+        client.client_id = (
+            f"{client.client_type}_{client.writer.get_extra_info('peername')[0]}"
+        )
         self._clients.pop(old_id, None)
         self._clients[client.client_id] = client
 
         logger.info(f"Client registered: {client.client_id} ({client.client_type})")
 
-        await client.send_text(json.dumps({
-            "type": "register_ack",
-            "client_type": client.client_type,
-            "status": "ok"
-        }))
+        await client.send_text(
+            json.dumps(
+                {
+                    "type": "register_ack",
+                    "client_type": client.client_type,
+                    "status": "ok",
+                }
+            )
+        )
 
         self._log_status()
         self._check_agent_activation()
@@ -296,8 +310,7 @@ class EchoSphereServer:
 
         if cmd_type in UNITY_COMMANDS:
             unity_clients = [
-                c for c in self._clients.values()
-                if c.client_type == ClientType.UNITY
+                c for c in self._clients.values() if c.client_type == ClientType.UNITY
             ]
             if unity_clients:
                 for unity in unity_clients:
@@ -310,7 +323,8 @@ class EchoSphereServer:
 
         elif cmd_type in PI_COMMANDS:
             pi_clients = [
-                c for c in self._clients.values()
+                c
+                for c in self._clients.values()
                 if c.client_type == ClientType.RASPBERRY_PI
             ]
             if pi_clients:
@@ -356,10 +370,14 @@ class EchoSphereServer:
 
 
 async def run_main() -> None:
-    parser = argparse.ArgumentParser(description="EchoSphere Agent - 多模态交互决策系统")
+    parser = argparse.ArgumentParser(
+        description="EchoSphere Agent - 多模态交互决策系统"
+    )
     parser.add_argument("--host", default="0.0.0.0", help="服务器监听地址")
     parser.add_argument("--port", type=int, default=65432, help="服务器监听端口")
-    parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    parser.add_argument(
+        "--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"]
+    )
 
     args = parser.parse_args()
 

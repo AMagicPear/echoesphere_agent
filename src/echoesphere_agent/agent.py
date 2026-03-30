@@ -5,7 +5,6 @@
 
 import logging
 import os
-from datetime import datetime
 from typing import Optional, Callable
 
 from smolagents import (
@@ -14,7 +13,13 @@ from smolagents import (
     LiteLLMModel,
 )
 
-from .events import PerceptionEvent, Decision, GAME_EVENTS, MUSIC_TRACKS, ENVIRONMENT_EFFECTS
+from .events import (
+    PerceptionEvent,
+    Decision,
+    GAME_EVENTS,
+    MUSIC_TRACKS,
+    ENVIRONMENT_EFFECTS,
+)
 from .memory import ShortTermMemory
 from .tools import ToolExecutor
 
@@ -23,59 +28,58 @@ logger = logging.getLogger("echoesphere.agent")
 
 # 系统提示词
 SYSTEM_PROMPT = """你是一个展览多模态交互系统的智能决策Agent。
+    ## 你的职责
+    根据玩家当前的手势、面部情绪以及游戏状态，编写 Python 代码调用工具函数，实现智能化的实时响应。
 
-## 你的职责
-根据玩家当前的手势、面部情绪以及游戏状态，编写 Python 代码调用工具函数，实现智能化的实时响应。
+    ## 系统架构说明
+    - 灯光控制、环境效果 -> 通过树莓派 (Raspberry Pi) 控制实际物理设备
+    - 游戏事件、章节推进、音乐播放 -> 通过 Unity 服务器控制游戏
 
-## 系统架构说明
-- 灯光控制、环境效果 -> 通过树莓派 (Raspberry Pi) 控制实际物理设备
-- 游戏事件、章节推进、音乐播放 -> 通过 Unity 服务器控制游戏
+    ## 可用工具（Python 函数）
+    {tool_schemas}
 
-## 可用工具（Python 函数）
-{tool_schemas}
+    ## 事件类型参考
+    ### 手势事件
+    - hand_detected: 检测到手
+    - hand_lost: 手消失
+    - pinch: 捏合手势
+    - pinch_released: 捏合释放
+    - open_both_hands: 双手张开
+    - swipe_left/swipe_right: 左右滑动
 
-## 事件类型参考
-### 手势事件
-- hand_detected: 检测到手
-- hand_lost: 手消失
-- pinch: 捏合手势
-- pinch_released: 捏合释放
-- open_both_hands: 双手张开
-- swipe_left/swipe_right: 左右滑动
+    ### 面部情绪
+    - happy: 开心
+    - sad: 悲伤
+    - surprised: 惊讶
+    - confused: 困惑
+    - neutral: 中性
+    - angry: 生气
+    - fear: 恐惧
+    - disgust: 厌恶
 
-### 面部情绪
-- happy: 开心
-- sad: 悲伤
-- surprised: 惊讶
-- confused: 困惑
-- neutral: 中性
-- angry: 生气
-- fear: 恐惧
-- disgust: 厌恶
+    ### 游戏事件ID
+    {game_events}
 
-### 游戏事件ID
-{game_events}
+    ### 音乐曲目
+    {music_tracks}
 
-### 音乐曲目
-{music_tracks}
+    ### 环境效果
+    {environment_effects}
 
-### 环境效果
-{environment_effects}
+    ## 决策原则
+    1. **多模态融合**: 同时整合视觉(手势、情绪)、游戏状态和上下文记忆做综合决策
+    2. **自然交互**: 响应应该符合人类直觉，不应为响应而响应
+    3. **情境匹配**: 根据当前情绪状态调整环境响应，如惊讶时配合闪电效果
+    4. **适度节制**: 避免过于频繁的工具调用，保持交互自然流畅
+    5. **上下文连贯**: 利用短期记忆理解连续交互状态
 
-## 决策原则
-1. **多模态融合**: 同时整合视觉(手势、情绪)、游戏状态和上下文记忆做综合决策
-2. **自然交互**: 响应应该符合人类直觉，不应为响应而响应
-3. **情境匹配**: 根据当前情绪状态调整环境响应，如惊讶时配合闪电效果
-4. **适度节制**: 避免过于频繁的工具调用，保持交互自然流畅
-5. **上下文连贯**: 利用短期记忆理解连续交互状态
+    ## 输出格式
+    请使用 Python 代码调用工具函数。例如：
+    >>> control_lights(color="#FF5733", brightness=0.8, pattern="pulse")
+    >>> trigger_game_event(event_id="lightning", params=None)
 
-## 输出格式
-请使用 Python 代码调用工具函数。例如：
->>> control_lights(color="#FF5733", brightness=0.8, pattern="pulse")
->>> trigger_game_event(event_id="lightning", params=None)
-
-如果不需要调用任何工具，直接输出 'pass'。
-"""
+    如果不需要调用任何工具，直接输出 'pass'。
+    """
 
 
 class DecisionAgent:
@@ -86,25 +90,22 @@ class DecisionAgent:
 
     def __init__(
         self,
-        model_name: str = "dashscope/qwen3.5-plus",
+        model_id: str = "dashscope/qwen3.5-plus",
         api_key: Optional[str] = None,
         api_base: Optional[str] = None,
     ):
         # 初始化工具执行器
         self.tool_executor = ToolExecutor()
-
         # 初始化短期记忆
         self.memory = ShortTermMemory(max_history=20)
-
         # 初始化 VLM 模型
-        self.model = self._init_model(model_name, api_key, api_base)
-
+        self.model = self._init_model(model_id, api_key, api_base)
         # 初始化 Agent
         self.agent = self._init_agent()
 
     def _init_model(
         self,
-        model_name: str,
+        model_id: str,
         api_key: Optional[str],
         api_base: Optional[str],
     ) -> Model:
@@ -113,7 +114,7 @@ class DecisionAgent:
         api_base = api_base or os.getenv("DASHSCOPE_API_BASE")
 
         return LiteLLMModel(
-            model_id=model_name,
+            model_id=model_id,
             api_key=api_key,
             base_url=api_base,
             temperature=0.7,
@@ -123,16 +124,22 @@ class DecisionAgent:
 
     def _init_agent(self) -> CodeAgent:
         """初始化 smolagents Agent"""
-        tool_schemas = "\n".join([
-            f"- {t['name']}: {t['description']}"
-            for t in self.tool_executor.get_tool_schemas()
-        ])
+        tool_schemas = "\n".join(
+            [
+                f"- {t['name']}: {t['description']}"
+                for t in self.tool_executor.get_tool_schemas()
+            ]
+        )
 
         system_prompt = SYSTEM_PROMPT.format(
             tool_schemas=tool_schemas,
-            game_events="\n".join([f"- {k}: {v['description']}" for k, v in GAME_EVENTS.items()]),
+            game_events="\n".join(
+                [f"- {k}: {v['description']}" for k, v in GAME_EVENTS.items()]
+            ),
             music_tracks="\n".join([f"- {k}: {v}" for k, v in MUSIC_TRACKS.items()]),
-            environment_effects="\n".join([f"- {k}: {v}" for k, v in ENVIRONMENT_EFFECTS.items()]),
+            environment_effects="\n".join(
+                [f"- {k}: {v}" for k, v in ENVIRONMENT_EFFECTS.items()]
+            ),
         )
 
         agent = CodeAgent(

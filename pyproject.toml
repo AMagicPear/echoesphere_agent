@@ -8,7 +8,7 @@ dependencies = [
     "ddgs>=9.11.4",
     "pillow>=12.1.1",
     "python-dotenv>=1.2.2",
-    "smolagents[litellm]>=1.24.0",
+    "smolagents[litellm,telemetry]>=1.24.0",
 ]
 
 [build-system]
