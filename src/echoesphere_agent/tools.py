@@ -258,6 +258,86 @@ class PlayMusicTool(SmolTool):
             return ToolResult(success=False, message=f"音乐播放失败: {e}").to_dict()
 
 
+class RequestUnityScreenshotTool(SmolTool):
+    """请求 Unity 游戏画面截图工具
+
+    Agent 主动向 Unity 请求当前游戏画面截图。
+    """
+
+    name = "request_unity_screenshot"
+    description = "请求 Unity 游戏画面的截图。返回截图数据供 VLM 分析当前游戏状态。"
+    inputs = {}
+    output_type = "image"
+
+    def __init__(self, executor: "ToolExecutor"):
+        super().__init__()
+        self.executor = executor
+
+    def forward(self) -> dict:
+        logger.info("[RequestUnityScreenshotTool] forward called")
+        try:
+            image_bytes = self.executor.execute_screenshot_request("unity")
+            if image_bytes:
+                import base64
+                b64 = base64.b64encode(image_bytes).decode("utf-8")
+                result = ToolResult(
+                    success=True,
+                    message="Unity 截图已获取",
+                    data={"format": "jpeg", "data": b64},
+                ).to_dict()
+                logger.info(f"Unity screenshot received: {len(image_bytes)} bytes")
+                return result
+            else:
+                result = ToolResult(
+                    success=False, message="Unity 截图请求失败，客户端未连接或超时"
+                ).to_dict()
+                logger.warning("Unity screenshot failed")
+                return result
+        except Exception as e:
+            logger.exception("request_unity_screenshot failed")
+            return ToolResult(success=False, message=f"截图请求失败: {e}").to_dict()
+
+
+class RequestMediaPipeScreenshotTool(SmolTool):
+    """请求 MediaPipe 摄像头画面截图工具
+
+    Agent 主动向 MediaPipe 模块请求当前摄像头画面截图。
+    """
+
+    name = "request_mediapipe_screenshot"
+    description = "请求 MediaPipe 摄像头画面的截图。返回截图数据供 VLM 分析玩家状态。"
+    inputs = {}
+    output_type = "image"
+
+    def __init__(self, executor: "ToolExecutor"):
+        super().__init__()
+        self.executor = executor
+
+    def forward(self) -> dict:
+        logger.info("request_mediapipe_screenshot called")
+        try:
+            image_bytes = self.executor.execute_screenshot_request("mediapipe")
+            if image_bytes:
+                import base64
+                b64 = base64.b64encode(image_bytes).decode("utf-8")
+                result = ToolResult(
+                    success=True,
+                    message="MediaPipe 截图已获取",
+                    data={"format": "jpeg", "data": b64},
+                ).to_dict()
+                logger.info(f"MediaPipe screenshot received: {len(image_bytes)} bytes")
+                return result
+            else:
+                result = ToolResult(
+                    success=False, message="MediaPipe 截图请求失败，客户端未连接或超时"
+                ).to_dict()
+                logger.warning("MediaPipe screenshot failed")
+                return result
+        except Exception as e:
+            logger.exception("request_mediapipe_screenshot failed")
+            return ToolResult(success=False, message=f"截图请求失败: {e}").to_dict()
+
+
 class SetEnvironmentTool(SmolTool):
     """设置环境效果工具
 
@@ -319,6 +399,65 @@ class SetEnvironmentTool(SmolTool):
             return ToolResult(success=False, message=f"环境效果设置失败: {e}").to_dict()
 
 
+class AsyncCallback:
+    """异步命令回调，支持返回数据（如截图）"""
+
+    def __init__(self):
+        self._callback: Optional[Callable[[dict], Any]] = None
+
+    def set(self, callback: Callable[[dict], Any]) -> None:
+        logger.info(f"[AsyncCallback] Callback set to: {callback}")
+        self._callback = callback
+
+    def __call__(self, cmd: dict) -> Any:
+        import asyncio
+        import inspect
+        import threading
+
+        logger.debug(f"[AsyncCallback] Called with cmd={cmd}")
+        if self._callback is None:
+            logger.warning("[AsyncCallback] No async command callback configured")
+            return None
+
+        logger.debug(f"[AsyncCallback] Invoking callback...")
+        result = self._callback(cmd)
+        logger.info(f"[AsyncCallback] _callback returned: type={type(result)}, value={repr(result)[:200] if result else None}")
+        logger.debug(f"[AsyncCallback] is_coroutine={inspect.iscoroutine(result)}")
+
+        if inspect.iscoroutine(result):
+            # 在新线程中运行 coroutine，避免嵌套 event loop 问题
+            # 使用 threading.Event 进行跨线程同步
+            ready_event = threading.Event()
+            result_holder = [None]  # 用 list 来存储结果（绕过闭包限制）
+
+            async def run_and_notify():
+                try:
+                    ret = await result
+                    result_holder[0] = ret
+                finally:
+                    ready_event.set()
+
+            def thread_target():
+                asyncio.run(run_and_notify())
+
+            thread = threading.Thread(target=thread_target)
+            thread.start()
+
+            # 等待线程完成（最多10秒超时）
+            timeout = 10.0
+            if not ready_event.wait(timeout):
+                logger.warning(f"[AsyncCallback] Screenshot request timed out after {timeout}s")
+                return (False, None)
+
+            thread.join()
+            ret = result_holder[0]
+            logger.info(f"[AsyncCallback] Thread result: type={type(ret)}")
+            return ret
+
+        logger.debug(f"[AsyncCallback] Returning sync result: {type(result)}")
+        return result
+
+
 class ToolExecutor:
     """工具执行器
 
@@ -329,6 +468,7 @@ class ToolExecutor:
     def __init__(self):
         self._tools: dict[str, SmolTool] = {}
         self._command_callback: Optional[Callable[[dict], bool]] = None
+        self._async_callback = AsyncCallback()
         self._register_default_tools()
 
     def set_command_callback(self, callback: Callable[[dict], bool]) -> None:
@@ -369,9 +509,27 @@ class ToolExecutor:
             TriggerGameEventTool(self),
             PlayMusicTool(self),
             SetEnvironmentTool(self),
+            RequestUnityScreenshotTool(self),
+            RequestMediaPipeScreenshotTool(self),
         ]
         for tool in tools:
             self._tools[tool.name] = tool
+
+    def set_async_command_callback(self, callback: Callable[[dict], Any]) -> None:
+        """设置异步命令回调，支持返回数据（如截图）"""
+        self._async_callback.set(callback)
+
+    def execute_screenshot_request(self, source: str) -> Optional[bytes]:
+        """发送截图请求并等待响应，返回图片字节或 None"""
+        cmd = {"cmd": "request_screenshot", "source": source}
+        logger.info(f"[ToolExecutor] execute_screenshot_request source={source}")
+        result = self._async_callback(cmd)
+        logger.info(f"[ToolExecutor] execute_screenshot_request result: type={type(result)}, value={repr(result)[:200]}")
+        if isinstance(result, bytes):
+            logger.info(f"[ToolExecutor] Returning {len(result)} bytes")
+            return result
+        logger.warning(f"[ToolExecutor] Screenshot request returned non-bytes result: {repr(result)[:200] if result else None}")
+        return None
 
     def execute_tool(self, tool_name: str, arguments: dict) -> ToolResult:
         """执行指定的工具"""

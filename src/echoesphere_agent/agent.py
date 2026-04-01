@@ -5,9 +5,13 @@
 
 import logging
 import os
-from typing import Optional, Callable
+from io import BytesIO
+from typing import Optional, Callable, Any
+
+from PIL import Image
 
 from smolagents import (
+    ActionStep,
     CodeAgent,
     Model,
     LiteLLMModel,
@@ -24,6 +28,17 @@ from .memory import ShortTermMemory
 from .tools import ToolExecutor
 
 logger = logging.getLogger("echoesphere.agent")
+
+
+def _clean_old_screenshots(memory_step: ActionStep, agent: "CodeAgent") -> None:
+    """清理旧步骤中的截图，节省 token 消耗
+
+    保留最近 2 步的截图，删除更早的步骤截图。
+    """
+    latest_step = memory_step.step_number
+    for step in agent.memory.steps:
+        if isinstance(step, ActionStep) and step.step_number <= latest_step - 2:
+            step.observations_images = None
 
 
 # 系统提示词
@@ -79,6 +94,7 @@ SYSTEM_PROMPT = """你是一个展览多模态交互系统的智能决策Agent�
     >>> trigger_game_event(event_id="lightning", params=None)
 
     如果不需要调用任何工具，直接输出 'pass'。
+    现在正在测试阶段，当前测试项是截图功能，因此：请在接收到事件后调用截图请求获得截图后描述图片内容。
     """
 
 
@@ -148,6 +164,7 @@ class DecisionAgent:
             instructions=system_prompt,
             max_steps=3,
             additional_authorized_imports=["json", "logging"],
+            step_callbacks=[_clean_old_screenshots],
         )
 
         return agent
@@ -159,6 +176,14 @@ class DecisionAgent:
             handler: 回调函数，接收命令字典，返回是否成功
         """
         self.tool_executor.set_command_callback(handler)
+
+    def set_async_command_handler(self, handler: Callable[[dict], Any]) -> None:
+        """设置异步命令处理器，支持返回数据（如截图）
+
+        Args:
+            handler: 异步回调函数，接收命令字典，返回任意结果
+        """
+        self.tool_executor.set_async_command_callback(handler)
 
     def process_event(self, event: PerceptionEvent) -> Optional[Decision]:
         """处理感知事件并做出决策
@@ -232,11 +257,16 @@ class DecisionAgent:
         # 构建上下文消息
         context = self._build_context(events)
 
+        # 提取截图作为 task_images
+        images = self._extract_images(events)
+
         logger.info(f"Making decision with context: {context[:500]}...")
+        if images:
+            logger.info(f"Passing {len(images)} image(s) to agent")
 
         try:
             # 调用 Agent 获取响应 (CodeAgent 会自动执行工具)
-            response = self.agent.run(context)
+            response = self.agent.run(context, images=images or None)
 
             decision.reasoning = response
             decision.tool_calls = []  # CodeAgent 自动执行，无需手动解析
@@ -251,6 +281,23 @@ class DecisionAgent:
             decision.reasoning = f"决策失败: {e}"
 
         return decision
+
+    def _extract_images(self, events: list[PerceptionEvent]) -> list[Image.Image]:
+        """从事件中提取截图，返回 PIL Image 列表"""
+        import base64
+
+        images = []
+        for event in reversed(events):
+            if event.screenshot:
+                try:
+                    img_data = base64.b64decode(event.screenshot)
+                    img = Image.open(BytesIO(img_data))
+                    images.append(img)
+                    if len(images) >= 3:  # 最多 3 张截图
+                        break
+                except Exception:
+                    logger.warning(f"Failed to decode screenshot from {event.source_name}")
+        return images
 
     def _build_context(self, events: list[PerceptionEvent]) -> str:
         """构建决策上下文"""
@@ -277,3 +324,7 @@ class DecisionAgent:
     def reset_memory(self) -> None:
         """重置记忆"""
         self.memory.clear()
+
+    def replay(self) -> None:
+        """回放最近一次 Agent 执行过程，用于调试"""
+        self.agent.replay()
