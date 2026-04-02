@@ -1,11 +1,7 @@
-from echoesphere_agent_neo.server import EchoServer, MessageDict, ClientAddr
+from echoesphere_agent_neo.server import MessageDict
 import asyncio
 import logging
 
-# 配置日志
-logging.basicConfig(
-    level=logging.DEBUG, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s"
-)
 logger = logging.getLogger("Agent")
 
 
@@ -87,29 +83,3 @@ class EchoAgent:
             # elif msg_type == "image":
             #     # 处理 base64 图像数据
             #     pass
-
-
-async def main():
-    # 创建全局消息队列（无大小限制）
-    message_queue = asyncio.Queue()
-
-    # 创建 TCP 服务器
-    server = EchoServer("0.0.0.0", 65432, message_queue)  # 与C#示例端口一致
-    await server.start()
-
-    # 创建智能体（每 3 秒处理一次）
-    agent = EchoAgent(message_queue, interval=3.0)
-    await agent.start()
-
-    # 等待用户按 Ctrl+C 退出
-    try:
-        await asyncio.Event().wait()  # 永远等待，直到收到信号
-    except KeyboardInterrupt:
-        logger.info("收到退出信号，正在关闭...")
-    finally:
-        await agent.stop()
-        await server.stop()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
