@@ -13,10 +13,7 @@ import json
 import struct
 import sys
 import time
-from pathlib import Path
-
-# 确保 src 包可导入
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# from pathlib import Path
 
 from echoesphere_agent.run import EchoSphereServer, MessageType
 
