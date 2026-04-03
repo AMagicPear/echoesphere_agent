@@ -7,11 +7,11 @@ requires-python = ">=3.13"
 dependencies = [
     "ddgs>=9.11.4",
     "deepagents>=0.4.12",
-    # "langchain>=1.2.14",
-    # "langchain-community>=0.4.1",
+    "langchain[anthropic]>=1.2.14",
+    "openinference-instrumentation-langchain>=0.1.61",
     "pillow>=12.1.1",
     "python-dotenv>=1.2.2",
-    "smolagents[litellm,telemetry]>=1.24.0",
+    "smolagents[litellm,telemetry]>=1.24.0", # deprecated, switching to deepagents
 ]
 
 
@@ -20,7 +20,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [dependency-groups]
-dev = [
-    "jupyter-client>=8.8.0",
-    "tavily-python>=0.7.23",
-]
+dev = ["jupyter-client>=8.8.0", "tavily-python>=0.7.23"]
