@@ -3,15 +3,31 @@
 ## 一、系统概述
 
 ### 1.1 项目背景
+
 面向展览场景的多模态虚实联动交互系统，通过捕捉玩家面部情绪、手势等视觉信息，结合Unity游戏状态，实现智能化的实时响应与物理环境控制。
 
 ### 1.2 设计目标
+
 - **多模态感知**：整合手势、面部情绪、游戏状态等多种输入源
 - **智能决策**：基于VLM理解上下文，自主选择工具函数
 - **实时响应**：低延迟的感知-决策-执行闭环
 - **可扩展性**：模块化设计，支持后续扩展图片输入、游戏事件定义
 
-### 1.3 系统架构
+### 1.3 核心框架选型
+
+在选取核心开发框架技术框架方面，本研究评估了以下的框架：
+
+1. **smolagents**：是由HuggingFace开发的轻量级agent框架，专门为"VLM + 工具调用"场景设计。与LangGraph等复杂工作流框架相比，smolagents具有以下优势：（1）原生支持Tool Calling，VLM可直接调用预定义的外部工具；（2）开箱即用的VLM支持，可快速接入Qwen3.5等模型；（3）框架体积轻量、学习曲线平缓，适合快速原型开发。
+
+2. **LangChain/DeepAgents**：基于LangChain生态的DeepAgents框架，提供更完善的Agent抽象、工作流管理和持久化支持。
+
+经过实现对比，最终选择了使用 **DeepAgents** (基于LangChain/LangGraph)，原因如下：
+- 内置 `create_deep_agent()` 工厂函数，简化Agent创建流程
+- 原生支持 `MemorySaver` checkpointer，提供会话记忆功能
+- 与 LangChain 生态深度集成，支持丰富的中间件扩展
+- 内置 TodoListMiddleware、FilesystemMiddleware、SubAgentMiddleware 等生产级组件
+
+### 1.4 系统架构
 
 **架构说明：EchoSphere Agent 作为 TCP Server 运行，接收所有模块的 TCP Client 连接。客户端连接后需发送注册消息确认身份。**
 
@@ -41,16 +57,17 @@
 │   │                    决策层 (Decision)                             │   │
 │   │                          ▼                                     │   │
 │   │  ┌─────────────────────────────────────────────────────────┐  │   │
-│   │  │                    Agent Core                            │  │   │
+│   │  │                    EchoAgent                             │  │   │
 │   │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐  │  │   │
-│   │  │  │  VLM Engine │  │ Tool Caller │  │ Short-term Mem  │  │  │   │
-│   │  │  │ (MiniMax)   │  │ (smolagents)│  │  (上下文记忆)   │  │  │   │
+│   │  │  │  VLM Engine │  │ Tool Caller │  │ Checkpointer    │  │  │   │
+│   │  │  │ (MiniMax)   │  │(send_to_clie│  │ (MemorySaver)   │  │  │   │
+│   │  │  │             │  │  nt)        │  │  (会话记忆)     │  │  │   │
 │   │  │  └─────────────┘  └─────────────┘  └─────────────────┘  │  │   │
 │   │  └─────────────────────────────────────────────────────────┘  │   │
 │   │                              │                               │   │
 │   │  ┌──────────────────────────┼────────────────────────────┐  │   │
 │   │  │                      工具函数                          │  │   │
-│   │  │  control_lights | advance_chapter | trigger_event |... │  │   │
+│   │  │                   send_to_client                      │  │   │
 │   │  └───────────────────────────────────────────────────────┘  │   │
 │   └─────────────────────────────┼───────────────────────────────┘   │
 │                                 │                                    │
@@ -71,7 +88,7 @@
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-### 1.4 客户端注册协议
+### 1.5 客户端注册协议
 
 所有 TCP Client 连接后必须发送注册消息：
 
@@ -86,16 +103,6 @@
 {"type": "register", "client_type": "raspberry_pi"}
 ```
 
-服务器返回注册确认：
-```json
-{"type": "register_ack", "client_type": "unity", "status": "ok"}
-```
-
-### 1.5 启动条件
-
-- **必需客户端**：`mediapipe` + `unity` 连接后，Agent 激活
-- **可选客户端**：`raspberry_pi`
-
 ---
 
 ## 二、TCP 通信协议
@@ -104,8 +111,7 @@
 
 ```
 4 bytes (big-endian int) : payload length
-1 byte                   : message type
-N bytes                  : payload
+N bytes                  : UTF-8 JSON payload
 ```
 
 ### 2.2 消息类型
@@ -116,6 +122,18 @@ N bytes                  : payload
 | IMAGE | 0x01 | 原始图像字节 |
 | COMMAND | 0x02 | 执行命令 (JSON) |
 | REGISTER | 0x03 | 注册消息 (JSON) |
+
+### 2.3 统一JSON消息结构
+
+```json
+{
+    "type": "text | image | command | register | request | response",
+    "data": "文本内容或base64编码数据",
+    "client_type": "mediapipe | unity | raspberry_pi",  // register 时使用
+    "request_id": "...",  // request/response 时使用
+    "cmd": "..."  // request 时使用
+}
+```
 
 ---
 
@@ -142,7 +160,7 @@ N bytes                  : payload
     "event": "face_detected" | "face_lost" | "emotion_change",
     "data": {
         "x": float, "y": float,
-        "emotion": "happy" | "sad" | "surprised" | "confused" | "neutral" | ...
+        "emotion": "happy" | "sad" | "surprised" | "confused" | "neutral" | ..."
     },
     "timestamp_ms": int
 }
@@ -179,15 +197,15 @@ N bytes                  : payload
 
 ## 四、决策层设计
 
-### 4.1 工具函数定义
+### 4.1 工具函数设计
 
-| 工具名称 | 目标客户端 | 功能 | 参数 |
-|---------|-----------|------|------|
-| `control_lights` | Raspberry Pi | 控制灯光 | `color: str`, `brightness: float`, `pattern: str` |
-| `advance_game_chapter` | Unity | 推进游戏章节 | `chapter: int` |
-| `trigger_game_event` | Unity | 触发游戏内事件 | `event_id: str`, `params: dict` |
-| `play_music` | Unity | 播放背景音乐 | `track: str`, `volume: float` |
-| `set_environment` | Raspberry Pi | 设置环境效果 | `effect: str`, `intensity: float` |
+系统定义以下核心工具函数供VLM调用：
+
+| 工具名称 | 功能 | 参数 |
+|---------|------|------|
+| `send_to_client` | 向客户端发送消息 | `client_type: str`, `message: str` |
+
+VLM根据玩家当前的手势、情绪以及游戏状态，自主选择调用 `send_to_client` 工具向相应客户端发送控制指令，实现智能化的实时响应。
 
 ### 4.2 决策触发条件
 
@@ -195,29 +213,86 @@ N bytes                  : payload
 - 情绪变化：`emotion_change`
 - 游戏状态变化：`chapter_changed`, `internal_event`
 
+### 4.3 会话记忆
+
+EchoAgent 使用 `MemorySaver` checkpointer 提供会话记忆功能：
+
+- 基于 `thread_id` 区分不同客户端的会话
+- 自动维护多轮对话上下文
+- 支持跨调用持久化状态
+
 ---
 
-## 五、目录结构
+## 五、网络通信设计
+
+### 5.1 TCP Server 架构
+
+- Unity游戏客户端作为 TCP Server，监听决策指令
+- 摄像头、手势识别、情绪识别等模块作为 TCP Client，将感知数据发送至决策模块
+- 决策模块同样作为 TCP Client，将工具调用结果发送至 Unity Server
+- 所有数据采用 JSON 格式封装，保证跨平台兼容性
+
+### 5.2 TCP Server 实现
+
+EchoAgent TCP Server 特点：
+
+- **长度前缀协议**：4 bytes big-endian 长度 + UTF-8 JSON
+- **客户端管理**：按 `client_type` 分类管理，支持多客户端并发
+- **消息队列**：异步处理，批量聚合待处理消息
+
+---
+
+## 六、目录结构
 
 ```
 echoesphere_agent/
-├── src/echoesphere_agent/
-│   ├── __init__.py
-│   ├── run.py      # TCP Server 主程序入口
-│   ├── events.py   # 事件类型定义
-│   ├── memory.py   # 短期记忆管理
-│   ├── tools.py   # 工具函数定义
-│   └── agent.py   # Agent 核心
+├── main.py                        # 程序入口
+├── src/echoesphere_agent_neo/
+│   ├── server.py                  # TCP Server + LengthPrefixProtocol
+│   ├── agent.py                   # EchoAgent + Deep Agent
+│   └── tools.py                   # 工具占位
+├── src/echoesphere_agent/         # smolagents 旧实现（已弃用）
 ├── tests/
-├── notebooks/
-├── SYSTEM_DESIGN.md
+│   └── test_minimax_integration.py # Deep Agent 测试
+├── docs/
+│   ├── SYSTEM_DESIGN.md
+│   └── DEBUG_GUIDE.md
 ├── pyproject.toml
 └── .env
 ```
 
 ---
 
-## 六、客户端修改清单
+## 七、运行方式
+
+```bash
+# 完整运行
+python main.py --log-level DEBUG
+
+# 指定端口
+python main.py  # 默认 65432
+```
+
+### 命令行参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--log-level` | INFO | 日志级别 (DEBUG/INFO/WARNING/ERROR) |
+
+---
+
+## 八、环境配置
+
+```bash
+# .env 文件
+MINIMAX_API_KEY=your_api_key_here
+MINIMAX_API_BASE=https://api.minimaxi.com/v1
+TAVILY_API_KEY=your_tavily_key_here  # 可选，用于网络搜索
+```
+
+---
+
+## 九、客户端修改清单
 
 ### MediaPipe (mediapipe-hands)
 
@@ -234,36 +309,3 @@ echoesphere_agent/
 - 添加 `Command = 0x02` 和 `Register = 0x03` 到 `MessageType`
 - 添加 `RegisterMessage` 类
 - 连接后发送注册消息
-
----
-
-## 七、运行方式
-
-```bash
-# 完整运行（默认配置）
-python -m echoesphere_agent.run
-
-# 指定监听地址和端口
-python -m echoesphere_agent.run --host 0.0.0.0 --port 65432
-
-# 调整日志级别
-python -m echoesphere_agent.run --log-level DEBUG
-```
-
----
-
-## 八、配置参数
-
-```bash
-# .env 文件
-MINIMAX_API_KEY=your_api_key_here
-MINIMAX_API_BASE=https://api.minimaxi.com/v1
-```
-
-### 命令行参数
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `--host` | 0.0.0.0 | TCP Server 监听地址 |
-| `--port` | 65432 | TCP Server 监听端口 |
-| `--log-level` | INFO | 日志级别 |

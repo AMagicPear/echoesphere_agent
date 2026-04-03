@@ -43,7 +43,7 @@ class EchoAgent:
             """
             if self.echo_server:
                 self.echo_server.send_message(client_type, message)
-                return f"消息已发送给 {client_type}"
+                return f"消息{message}已发送给 {client_type}"
             return "错误：未连接到服务器"
 
         return [send_to_client]

@@ -1,18 +1,19 @@
 # EchoSphere Agent
 
-展览多模态交互系统的智能决策模块。基于 VLM 的实时决策系统，接收来自 MediaPipe（手势/面部）和 Unity 的感知事件，通过 Tool Calling 控制灯光，音乐，游戏事件等外部设备。
+毕业设计项目：多模态展览交互系统的智能决策模块。
 
-## 文档
+## 项目状态
 
-- [系统设计](docs/SYSTEM_DESIGN.md) - 完整系统架构设计
-- [调试指南](docs/DEBUG_GUIDE.md) - 分阶段调试教程
+**正在从 smolagents 迁移到 LangChain/DeepAgents**
+
+- `src/echoesphere_agent/` — smolagents 实现（已弃用）
+- `src/echoesphere_agent_neo/` — LangChain/DeepAgents 新实现（进行中）
 
 ## 快速开始
 
 ### 1. 安装依赖
 
 ```bash
-cd echoesphere_agent
 pip install -e .
 ```
 
@@ -20,65 +21,86 @@ pip install -e .
 
 创建 `.env` 文件：
 
-```bash
+```env
 MINIMAX_API_KEY=your_api_key_here
 MINIMAX_API_BASE=https://api.minimaxi.com/v1
+TAVILY_API_KEY=your_tavily_key_here  # 可选，用于网络搜索
 ```
 
-### 3. 启动 Agent
+### 3. 启动
 
 ```bash
-python -m echoesphere_agent.run --log-level DEBUG
+python main.py --log-level DEBUG
 ```
 
-### 4. 查看状态
+## 架构
 
 ```
---- Client Status ---
-Required (not connected): {'mediapipe', 'unity'}
-Optional (not connected): {'raspberry_pi'}
-Agent status: INACTIVE
-----------------------
+MediaPipe (手势+面部) ──┐
+Unity ──────────────────┼── TCP Server (65432) ── EchoAgent ── Deep Agent
+Raspberry Pi ───────────┘                          (VLM + Tools)
 ```
+
+### 核心模块 (echoesphere_agent_neo)
+
+| 文件 | 职责 |
+|------|------|
+| `server.py` | TCP Server、长度前缀协议、客户端管理 |
+| `agent.py` | EchoAgent 消息处理循环（batch processing + Deep Agent） |
+| `tools.py` | 工具函数占位 |
+
+### TCP 协议
+
+长度前缀 (4 bytes big-endian) + JSON payload
+
+```
+MessageType: TEXT=0x00, IMAGE=0x01, COMMAND=0x02, REGISTER=0x03
+```
+
+注册消息: `{"type": "register", "client_type": "mediapipe|unity|raspberry_pi"}`
+
+## Deep Agent
+
+使用 **DeepAgents** (基于 LangChain/LangGraph)：
+
+- `create_deep_agent()` 创建 agent 实例
+- `MemorySaver` checkpointer 提供会话记忆
+- `send_to_client` 工具：Agent 可向指定类型客户端发送消息
+
+### 工具
+
+- `send_to_client(client_type, message)` — 向 unity/mediapipe/raspberry_pi 发送消息
 
 ## 项目结构
 
 ```
 echoesphere_agent/
-├── src/echoesphere_agent/
-│   ├── run.py      # TCP Server 入口
-│   ├── agent.py    # smolagents Agent 核心
-│   ├── tools.py    # 工具函数定义
-│   ├── events.py   # 事件类型定义
-│   └── memory.py   # 短期记忆
+├── main.py                        # 程序入口
+├── src/echoesphere_agent_neo/
+│   ├── server.py                   # TCP Server + LengthPrefixProtocol
+│   ├── agent.py                    # EchoAgent + Deep Agent
+│   └── tools.py                    # 工具占位
+├── src/echoesphere_agent/          # smolagents 旧实现（已弃用）
+├── tests/
+│   └── test_minimax_integration.py # Deep Agent 测试
 ├── docs/
 │   ├── SYSTEM_DESIGN.md
 │   └── DEBUG_GUIDE.md
-└── README.md
+└── CLAUDE.md                      # Claude Code 指南
 ```
 
-## 工具函数
+## 调试
 
-| 函数 | 目标 | 说明 |
-|------|------|------|
-| `control_lights` | 树莓派 | 控制灯光颜色/亮度/模式 |
-| `advance_game_chapter` | Unity | 推进游戏章节 |
-| `trigger_game_event` | Unity | 触发游戏事件 |
-| `play_music` | Unity | 播放背景音乐 |
-| `set_environment` | 树莓派 | 设置环境效果 |
+查看连接: `lsof -i :65432`
 
-## TCP 协议
+日志标签: `Server`, `Agent`
 
+## 依赖
+
+```toml
+dependencies = [
+    "deepagents>=0.4.12",
+    "langchain[anthropic]>=1.2.14",
+    "tavily>=0.4.0",  # 可选
+]
 ```
-4 bytes (big-endian int) : payload length
-1 byte                   : message type (0x00=TEXT, 0x01=IMAGE, 0x02=COMMAND, 0x03=REGISTER)
-N bytes                  : payload
-```
-
-## 调试路径
-
-1. **阶段一**：基础连接测试（验证 TCP + 注册协议）
-2. **阶段二**：事件传输测试（验证事件能正确接收）
-3. **阶段三**：决策功能测试（验证 VLM + 工具调用）
-
-详细步骤见 [调试指南](docs/DEBUG_GUIDE.md)。
