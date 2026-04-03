@@ -39,8 +39,7 @@ Raspberry Pi ───────────┘                          (VLM)
 | 文件 | 职责 |
 |------|------|
 | `server.py` | TCP Server、长度前缀协议、客户端管理 |
-| `agent.py` | EchoAgent 消息处理循环（batch processing） |
-| `tools.py` | 工具函数占位 |
+| `agent.py` | EchoAgent 消息处理循环（batch processing）、工具定义（inline） |
 
 ### TCP 协议
 

@@ -30,7 +30,7 @@ class EchoAgent:
         self.interval: float = interval
         self.running: bool = False
         self.task: asyncio.Task | None = None
-        self.memory: MemorySaver = MemorySaver()
+        self.checkpointer: MemorySaver = MemorySaver()
         self.deep_agent: CompiledStateGraph = self._setup_agent()
 
     def make_tools(self) -> list[BaseTool]:
@@ -61,7 +61,7 @@ class EchoAgent:
             model=client,
             tools=self.make_tools(),
             system_prompt="你是一个互动智能体，负责接收用户消息并根据指令发送响应。",
-            checkpointer=self.memory,
+            checkpointer=self.checkpointer,
         )
 
         logger.info("Deep Agent 初始化完成")
