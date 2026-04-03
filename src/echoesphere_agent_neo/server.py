@@ -53,13 +53,13 @@ class LengthPrefixProtocol(asyncio.Protocol):
         self.server: "EchoServer" = server  # 用于注销连接
         self.buffer: bytes = b""
         self.expected_length: int | None = None
-        self.transport: BaseTransport | None = None
+        self.transport: asyncio.Transport | None = None
         self.client_addr: ClientAddr | None = None
         self.client_type: ClientType | None = None
 
     @override
     def connection_made(self, transport: BaseTransport):
-        self.transport = transport
+        self.transport: asyncio.Transport = transport
         self.client_addr: ClientAddr = transport.get_extra_info("peername")
         logger.info(f"新客户端连接: {self.client_addr}")
         self.server.connections.add(self)
@@ -94,8 +94,14 @@ class LengthPrefixProtocol(asyncio.Protocol):
                 json_str = message_data.decode("utf-8")
                 message_obj: JsonMessage = json.loads(json_str)
                 logger.debug(f"收到来自 {self.client_addr} 的消息: {json_str[:200]}")
-                # 将完整消息（原始JSON字符串）放入全局队列
-                # 也可以放入解析后的对象，根据智能体需求选择。这里放入原始字符串以便后续处理。
+
+                # 处理注册消息
+                if message_obj.get("type") == "register" and message_obj.get(
+                    "client_type"
+                ):
+                    self.client_type = ClientType(message_obj["client_type"])
+                    logger.info(f"客户端 {self.client_addr} 注册为 {self.client_type}")
+
                 assert self.client_addr is not None
                 self.message_queue.put_nowait(
                     MessageDict(
@@ -111,6 +117,15 @@ class LengthPrefixProtocol(asyncio.Protocol):
     def connection_lost(self, exc):
         logger.info(f"客户端断开: {self.client_addr}")
         self.server.connections.discard(self)
+
+    def send_json(self, obj: dict):
+        """发送 JSON 消息（长度前缀 + UTF-8 JSON）"""
+        if self.transport is None:
+            return
+        json_str = json.dumps(obj, ensure_ascii=False)
+        json_bytes = json_str.encode("utf-8")
+        length_prefix = struct.pack(">I", len(json_bytes))
+        self.transport.write(length_prefix + json_bytes)
 
 
 class EchoServer:
@@ -139,3 +154,12 @@ class EchoServer:
             if conn.transport:
                 conn.transport.close()
         logger.info("TCP 服务器已停止")
+
+    def send_message(self, client_type: str, message: str):
+        """向指定类型的客户端发送消息"""
+        for conn in self.connections:
+            if conn.client_type and conn.client_type.value == client_type:
+                conn.send_json({"type": "text", "data": message})
+                logger.info(f"向 {client_type} 发送消息: {message[:100]}")
+                return
+        logger.warning(f"未找到类型为 {client_type} 的客户端")
