@@ -102,13 +102,13 @@ class EchoAgent:
         valid_messages = []
         for msg in messages:
             parsed = msg["parsed"]
-            if parsed["type"] != "text":
-                logging.warning(f"跳过非文本消息: {parsed['type']}")
-                continue
-            if not parsed.get("data"):
-                logging.warning(f"跳过空消息: {parsed['type']}")
-                continue
-            valid_messages.append({"role": "user", "content": parsed["data"]})
+            # if parsed["type"] != "text":
+            #     logging.warning(f"跳过非文本消息: {parsed['type']}")
+            #     continue
+            # if not parsed.get("data"):
+            #     logging.warning(f"跳过空消息: {parsed['type']}")
+            #     continue
+            valid_messages.append({"role": "user", "content": parsed.__str__()})
 
         if not valid_messages:
             return

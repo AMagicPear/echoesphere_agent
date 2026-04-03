@@ -57,7 +57,7 @@ agent = create_deep_agent(
 )
 
 result = agent.invoke(
-    {"messages": [{"role": "user", "content": "What is langgraph? Reply in Chinese."}]}
+    {"messages": [{"role": "user", "content": "我正在测试这个智能体的功能，请随意调用工具并输出"}]}
 )
 
 # Print the agent's response

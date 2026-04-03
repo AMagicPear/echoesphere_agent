@@ -3,6 +3,9 @@ from echoesphere_agent_neo.server import EchoServer, MessageDict
 import logging
 import asyncio
 from datetime import datetime
+from opentelemetry import trace
+from openinference.instrumentation.langchain import LangChainInstrumentor
+from phoenix.otel import register
 
 # 配置日志
 LOG_FILE = f"logs/echoagent_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
@@ -16,8 +19,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger("Agent")
 
-
 async def main():
+    # 配置跟踪 用于debug智能体行为 面板见 http://localhost:6006
+    tracer_provider = register(
+        project_name="echoesphere-debug",
+        auto_instrument=False,
+    )
+
+    LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
+    _tracer = trace.get_tracer(__name__)
+
     # 创建全局消息队列（无大小限制）
     message_queue: asyncio.Queue[MessageDict] = asyncio.Queue()
 
