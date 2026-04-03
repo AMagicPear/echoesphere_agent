@@ -48,7 +48,7 @@ class EchoAgent:
             return "错误：未连接到服务器"
 
         client = ChatAnthropic(
-            model_name="MiniMax-M2.2",
+            model_name="MiniMax-M2.7",
             base_url="https://api.minimaxi.com/anthropic",  # ty:ignore[unknown-argument]
             api_key=os.environ["MINIMAX_API_KEY"],  # ty:ignore[unknown-argument]
         )
