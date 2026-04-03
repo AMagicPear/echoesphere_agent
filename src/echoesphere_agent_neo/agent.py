@@ -1,3 +1,4 @@
+from langchain.tools import BaseTool
 from langchain_core.runnables import RunnableConfig
 from echoesphere_agent_neo.server import MessageDict, EchoServer
 import asyncio
@@ -29,15 +30,13 @@ class EchoAgent:
         self.interval: float = interval
         self.running: bool = False
         self.task: asyncio.Task | None = None
+        self.memory: MemorySaver = MemorySaver()
         self.deep_agent: CompiledStateGraph = self._setup_agent()
 
-    def _setup_agent(self):
-        """初始化 Deep Agent"""
-
-        @tool
+    def make_tools(self) -> list[BaseTool]:
+        @tool(description="向特定类型的客户端发送消息")
         def send_to_client(client_type: str, message: str) -> str:
-            """向特定类型的客户端发送消息。
-
+            """
             Args:
                 client_type: 目标客户端类型，如 "unity", "mediapipe", "raspberry_pi"
                 message: 要发送的消息内容
@@ -47,6 +46,11 @@ class EchoAgent:
                 return f"消息已发送给 {client_type}"
             return "错误：未连接到服务器"
 
+        return [send_to_client]
+
+    def _setup_agent(self):
+        """初始化 Deep Agent"""
+
         client = ChatAnthropic(
             model_name="MiniMax-M2.7",
             base_url="https://api.minimaxi.com/anthropic",  # ty:ignore[unknown-argument]
@@ -55,9 +59,9 @@ class EchoAgent:
 
         deep_agent = create_deep_agent(
             model=client,
-            tools=[send_to_client],
+            tools=self.make_tools(),
             system_prompt="你是一个互动智能体，负责接收用户消息并根据指令发送响应。",
-            checkpointer=MemorySaver(),
+            checkpointer=self.memory,
         )
 
         logger.info("Deep Agent 初始化完成")
@@ -98,23 +102,7 @@ class EchoAgent:
 
     async def process_messages(self, messages: list[MessageDict]):
         """使用 Deep Agent 批量处理消息"""
-        # 过滤出有效的文本消息
-        valid_messages = []
-        for msg in messages:
-            parsed = msg["parsed"]
-            # if parsed["type"] != "text":
-            #     logging.warning(f"跳过非文本消息: {parsed['type']}")
-            #     continue
-            # if not parsed.get("data"):
-            #     logging.warning(f"跳过空消息: {parsed['type']}")
-            #     continue
-            valid_messages.append({"role": "user", "content": parsed.__str__()})
-
-        if not valid_messages:
-            return
-
-        # 批量处理所有消息
         config = RunnableConfig({"configurable": {"thread_id": "batch"}})
-        logger.info(f"Agent 批量处理 {len(valid_messages)} 条消息")
-        await self.deep_agent.ainvoke({"messages": valid_messages}, config=config)
+        logger.info(f"Agent 批量处理 {len(messages)} 条消息")
+        await self.deep_agent.ainvoke({"messages": str(messages)}, config=config)
         logger.info("Agent 批量处理完成")

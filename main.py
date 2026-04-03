@@ -35,8 +35,8 @@ async def main():
     # 创建 TCP 服务器
     server = EchoServer("0.0.0.0", 65432, message_queue)
 
-    # 创建智能体（每 3 秒处理一次）
-    agent = EchoAgent(echo_server=server, message_queue=message_queue, interval=3.0)
+    # 创建智能体（每 5 秒处理一次）
+    agent = EchoAgent(echo_server=server, message_queue=message_queue, interval=5.0)
 
     # 启动服务器
     await server.start()
