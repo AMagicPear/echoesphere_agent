@@ -1,6 +1,7 @@
 from __future__ import annotations
-import enum
-from typing import override, TypedDict, NamedTuple
+from echoesphere_agent_neo.types import ClientType, JsonMessage
+from echoesphere_agent_neo.types import MessageDict, ClientAddr
+from typing import override
 import asyncio
 import logging
 import struct
@@ -8,37 +9,6 @@ import json
 from asyncio.transports import BaseTransport
 
 logger = logging.getLogger("Server")
-
-
-class ClientAddr(NamedTuple):
-    """用于存储客户端地址的元组类"""
-
-    host: str
-    port: int
-
-
-class ClientType(enum.Enum):
-    MEDIAPIPE = "mediapipe"  # MediaPipe (手势+面部)
-    UNITY = "unity"
-    RASPBERRY_PI = "raspberry_pi"
-
-
-class JsonMessage(TypedDict):
-    """用于存储JSON消息的字典类"""
-
-    type: str  # text | image | command | register
-    data: str  # 文本内容或base64编码数据
-    client_type: ClientType | None = None  # register 时使用
-    request_id: str | None = None  # request/response 时使用
-    cmd: str | None = None  # request 时使用
-
-
-class MessageDict(TypedDict):
-    """用于存储消息队列的字典类"""
-
-    client: ClientAddr
-    raw_json: str
-    parsed: JsonMessage
 
 
 class LengthPrefixProtocol(asyncio.Protocol):
@@ -155,10 +125,10 @@ class EchoServer:
                 conn.transport.close()
         logger.info("TCP 服务器已停止")
 
-    def send_message(self, client_type: str, message: str):
+    def send_message(self, client_type: ClientType, message: str):
         """向指定类型的客户端发送消息"""
         for conn in self.connections:
-            if conn.client_type and conn.client_type.value == client_type:
+            if conn.client_type and conn.client_type == client_type:
                 conn.send_json({"type": "text", "data": message})
                 logger.info(f"向 {client_type} 发送消息: {message[:100]}")
                 return

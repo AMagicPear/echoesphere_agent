@@ -1,6 +1,7 @@
 from langchain.tools import BaseTool
 from langchain_core.runnables import RunnableConfig
-from echoesphere_agent_neo.server import MessageDict, EchoServer
+from echoesphere_agent_neo.types import MessageDict, ClientType
+from echoesphere_agent_neo.server import EchoServer
 import asyncio
 import logging
 import os
@@ -42,13 +43,23 @@ class EchoAgent:
                 message: 要发送的消息内容
             """
             if self.echo_server:
-                self.echo_server.send_message(client_type, message)
+                self.echo_server.send_message(ClientType(client_type), message)
                 return f"消息{message}已发送给 {client_type}"
             return "错误：未连接到服务器"
 
+        # @tool
+        # async def request_unity_screenshot() -> str:
+        #     """
+        #     请求 Unity 客户端发送截图
+        #     """
+        #     if self.echo_server:
+        #         self.echo_server.send_message(ClientType("unity"), "request_screenshot")
+        #         return "已请求 unity 发送截图"
+        #     return "错误：未连接到服务器"
+
         return [send_to_client]
 
-    def _setup_agent(self):
+    def _setup_agent(self) -> CompiledStateGraph:
         """初始化 Deep Agent"""
 
         client = ChatAnthropic(
@@ -104,5 +115,5 @@ class EchoAgent:
         """使用 Deep Agent 批量处理消息"""
         config = RunnableConfig({"configurable": {"thread_id": "batch"}})
         logger.info(f"Agent 批量处理 {len(messages)} 条消息")
-        await self.deep_agent.ainvoke({"messages": str(messages)}, config=config)
+        await self.deep_agent.ainvoke({"messages": [msg["raw_json"] for msg in messages]}, config=config)
         logger.info("Agent 批量处理完成")
