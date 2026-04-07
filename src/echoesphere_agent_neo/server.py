@@ -125,11 +125,11 @@ class EchoServer:
                 conn.transport.close()
         logger.info("TCP 服务器已停止")
 
-    def send_message(self, client_type: ClientType, message: str):
+    def send_message(self, client_type: ClientType, message: str) -> ClientAddr | None:
         """向指定类型的客户端发送消息"""
         for conn in self.connections:
             if conn.client_type and conn.client_type == client_type:
                 conn.send_json({"type": "text", "data": message})
                 logger.info(f"向 {client_type} 发送消息: {message[:100]}")
-                return
+                return conn.client_addr
         logger.warning(f"未找到类型为 {client_type} 的客户端")

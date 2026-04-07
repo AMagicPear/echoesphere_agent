@@ -1,3 +1,4 @@
+from langchain.messages import HumanMessage
 from langchain.tools import BaseTool
 from langchain_core.runnables import RunnableConfig
 from echoesphere_agent_neo.types import MessageDict, ClientType
@@ -39,12 +40,19 @@ class EchoAgent:
         def send_to_client(client_type: str, message: str) -> str:
             """
             Args:
-                client_type: 目标客户端类型，如 "unity", "mediapipe", "raspberry_pi"
+                client_type: 目标客户端类型，可选值为 "unity", "mediapipe", "raspberry_pi"
                 message: 要发送的消息内容
             """
             if self.echo_server:
-                self.echo_server.send_message(ClientType(client_type), message)
-                return f"消息{message}已发送给 {client_type}"
+                client_addr = self.echo_server.send_message(
+                    ClientType(client_type), message
+                )
+                if client_addr:
+                    return (
+                        f"消息{message}已发送给 {client_type}，目标地址: {client_addr}"
+                    )
+                else:
+                    return f"错误：未找到类型为 {client_type} 的客户端"
             return "错误：未连接到服务器"
 
         # @tool
@@ -115,5 +123,8 @@ class EchoAgent:
         """使用 Deep Agent 批量处理消息"""
         config = RunnableConfig({"configurable": {"thread_id": "batch"}})
         logger.info(f"Agent 批量处理 {len(messages)} 条消息")
-        await self.deep_agent.ainvoke({"messages": [msg["raw_json"] for msg in messages]}, config=config)
+        await self.deep_agent.ainvoke(
+            {"messages": [HumanMessage(msg["raw_json"]) for msg in messages]},
+            config=config,
+        )
         logger.info("Agent 批量处理完成")
