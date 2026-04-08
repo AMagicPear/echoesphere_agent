@@ -5,8 +5,6 @@ from echoesphere_agent_neo.types import MessageDict, ClientType
 from echoesphere_agent_neo.server import EchoServer
 import asyncio
 import logging
-import os
-from langchain_anthropic import ChatAnthropic
 from langchain_core.tools import tool
 from deepagents import create_deep_agent
 from langgraph.checkpoint.memory import MemorySaver
@@ -48,38 +46,47 @@ class EchoAgent:
                     ClientType(client_type), message
                 )
                 if client_addr:
+                    logger.debug(f"发送消息: {message} 到 {client_type}，目标地址: {client_addr}")
                     return (
                         f"消息{message}已发送给 {client_type}，目标地址: {client_addr}"
                     )
                 else:
+                    logger.error(f"错误：未找到类型为 {client_type} 的客户端")
                     return f"错误：未找到类型为 {client_type} 的客户端"
             return "错误：未连接到服务器"
 
-        # @tool
-        # async def request_unity_screenshot() -> str:
-        #     """
-        #     请求 Unity 客户端发送截图
-        #     """
-        #     if self.echo_server:
-        #         self.echo_server.send_message(ClientType("unity"), "request_screenshot")
-        #         return "已请求 unity 发送截图"
-        #     return "错误：未连接到服务器"
+        @tool
+        def request_unity_screenshot() -> str:
+            """
+            请求 Unity 客户端发送截图
+            """
+            if self.echo_server:
+                self.echo_server.send_message(ClientType("unity"), "request_screenshot")
+                return "已请求 unity 发送截图"
+            return "错误：未连接到服务器"
 
-        return [send_to_client]
+        return [send_to_client, request_unity_screenshot]
 
     def _setup_agent(self) -> CompiledStateGraph:
         """初始化 Deep Agent"""
-
-        client = ChatAnthropic(
-            model_name="MiniMax-M2.7",
-            base_url="https://api.minimaxi.com/anthropic",  # ty:ignore[unknown-argument]
-            api_key=os.environ["MINIMAX_API_KEY"],  # ty:ignore[unknown-argument]
+        import os
+        from langchain_anthropic import ChatAnthropic
+        from langchain_openai import ChatOpenAI
+        # client = ChatAnthropic(
+        #     model_name="MiniMax-M2.7",
+        #     base_url="https://api.minimaxi.com/anthropic",  # ty:ignore[unknown-argument]
+        #     api_key=os.environ["MINIMAX_API_KEY"],  # ty:ignore[unknown-argument]
+        # )
+        client = ChatOpenAI(
+            model_name="qwen3.5",
+            base_url="http://192.168.3.251:5001/v1",  # ty:ignore[unknown-argument]
+            api_key="EMPTY",  # ty:ignore[unknown-argument]
         )
 
         deep_agent = create_deep_agent(
             model=client,
             tools=self.make_tools(),
-            system_prompt="你是一个互动智能体，负责接收用户消息并根据指令发送响应。",
+            system_prompt="你是一个互动智能体，负责接收用户消息并根据指令发送响应。你的所有响应都应该通过 send_to_client 工具发送给客户端。",
             checkpointer=self.checkpointer,
         )
 
@@ -123,8 +130,9 @@ class EchoAgent:
         """使用 Deep Agent 批量处理消息"""
         config = RunnableConfig({"configurable": {"thread_id": "batch"}})
         logger.info(f"Agent 批量处理 {len(messages)} 条消息")
-        await self.deep_agent.ainvoke(
+        result = await self.deep_agent.ainvoke(
             {"messages": [HumanMessage(msg["raw_json"]) for msg in messages]},
             config=config,
         )
+        logger.debug(f"Agent答复: {result['messages'][-1].content}")
         logger.info("Agent 批量处理完成")

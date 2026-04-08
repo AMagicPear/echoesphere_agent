@@ -7,7 +7,7 @@ requires-python = ">=3.13"
 dependencies = [
     "ddgs>=9.11.4",
     "deepagents>=0.4.12",
-    "langchain[anthropic]>=1.2.14",
+    "langchain[anthropic,openai]>=1.2.14",
     "openinference-instrumentation-langchain>=0.1.61",
     "pillow>=12.1.1",
     "python-dotenv>=1.2.2",
