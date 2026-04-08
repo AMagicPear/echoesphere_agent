@@ -39,7 +39,7 @@ class EchoAgent:
             """
             Args:
                 client_type: 目标客户端类型，可选值为 "unity", "mediapipe", "raspberry_pi"
-                message: 要发送的消息内容
+                message: 要发送的消息内容 为普通的文本消息
             """
             if self.echo_server:
                 client_addr = self.echo_server.send_message(
@@ -49,9 +49,7 @@ class EchoAgent:
                     logger.debug(
                         f"发送消息: {message} 到 {client_type}，目标地址: {client_addr}"
                     )
-                    return (
-                        f"长度为{len(message)}的消息{message}已成功发送给 {client_type}，目标地址: {client_addr}"
-                    )
+                    return f"长度为{len(message)}的消息{message}已成功发送给 {client_type}，目标地址: {client_addr}"
                 else:
                     logger.error(f"错误：未找到类型为 {client_type} 的客户端")
                     return f"错误：未找到类型为 {client_type} 的客户端"
@@ -141,17 +139,23 @@ class EchoAgent:
                 # Unity 发送的图片：base64 数据在 data 字段
                 content = [
                     {
+                        "type": "text",
+                        "text": f"Received image by request_id {parsed['request_id']} from {parsed['client_type']}",
+                    },
+                    {
                         "type": "image",
                         "source": {
                             "type": "base64",
                             "media_type": "image/jpeg",
                             "data": parsed["data"],
                         },
-                    }
+                    },
                 ]
                 langchain_messages.append(HumanMessage(content=content))
             else:
-                langchain_messages.append(HumanMessage(content=msg["raw_json"]))
+                langchain_messages.append(
+                    HumanMessage(content=msg["raw_json"])
+                )
 
         result = await self.deep_agent.ainvoke(
             {"messages": langchain_messages},
