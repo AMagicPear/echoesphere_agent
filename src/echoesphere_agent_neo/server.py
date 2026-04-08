@@ -6,6 +6,7 @@ import asyncio
 import logging
 import struct
 import json
+import uuid
 from asyncio.transports import BaseTransport
 
 logger = logging.getLogger("Server")
@@ -125,11 +126,24 @@ class EchoServer:
                 conn.transport.close()
         logger.info("TCP 服务器已停止")
 
-    def send_message(self, client_type: ClientType, message: str, type: str = "text") -> ClientAddr | None:
+    def send_message(
+        self, client_type: ClientType, message: str, type: str = "text"
+    ) -> tuple[ClientAddr, uuid.UUID] | None:
         """向指定类型的客户端发送消息"""
         for conn in self.connections:
-            if conn.client_type and conn.client_type == client_type:
-                conn.send_json({"type": type, "data": message})
-                logger.info(f"向 {client_type} 发送 {type} 类型消息，消息内容: {message[:100]}")
-                return conn.client_addr
+            if (
+                conn.client_type
+                and conn.client_addr
+                and conn.client_type == client_type
+            ):
+                payload = {"type": type, "data": message}
+                if type == "command":
+                    request_id = uuid.uuid4()
+                    payload["request_id"] = str(request_id)
+                conn.send_json(payload)
+                logger.info(
+                    f"向 {client_type} 发送 {type} 类型消息，消息内容: {message[:100]}"
+                )
+                return conn.client_addr, request_id
         logger.warning(f"未找到类型为 {client_type} 的客户端")
+        return None

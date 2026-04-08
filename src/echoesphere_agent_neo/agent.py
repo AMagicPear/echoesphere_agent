@@ -46,7 +46,9 @@ class EchoAgent:
                     ClientType(client_type), message
                 )
                 if client_addr:
-                    logger.debug(f"发送消息: {message} 到 {client_type}，目标地址: {client_addr}")
+                    logger.debug(
+                        f"发送消息: {message} 到 {client_type}，目标地址: {client_addr}"
+                    )
                     return (
                         f"消息{message}已发送给 {client_type}，目标地址: {client_addr}"
                     )
@@ -61,9 +63,12 @@ class EchoAgent:
             请求 Unity 客户端发送截图
             """
             if self.echo_server:
-                self.echo_server.send_message(ClientType("unity"), "request_screenshot")
-                return "已请求 unity 发送截图"
-            return "错误：未连接到服务器"
+                result = self.echo_server.send_message(
+                    ClientType.UNITY, "request_screenshot", type="command"
+                )
+                if result:
+                    return f"已请求 unity 发送截图 请在收到截图后描述图片内容，请求ID: {str(result[1])}"
+            return "错误：未连接到服务器或未找到 Unity 客户端"
 
         return [send_to_client, request_unity_screenshot]
 
@@ -72,6 +77,7 @@ class EchoAgent:
         import os
         from langchain_anthropic import ChatAnthropic
         from langchain_openai import ChatOpenAI
+
         # client = ChatAnthropic(
         #     model_name="MiniMax-M2.7",
         #     base_url="https://api.minimaxi.com/anthropic",  # ty:ignore[unknown-argument]
