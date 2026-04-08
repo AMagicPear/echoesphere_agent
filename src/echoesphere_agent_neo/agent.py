@@ -1,7 +1,7 @@
 from langchain.messages import HumanMessage
 from langchain.tools import BaseTool
 from langchain_core.runnables import RunnableConfig
-from echoesphere_agent_neo.types import MessageDict, ClientType
+from echoesphere_agent_neo.types import MessageDict, ClientType, JsonMessage
 from echoesphere_agent_neo.server import EchoServer
 import asyncio
 import logging
@@ -50,23 +50,20 @@ class EchoAgent:
                         f"发送消息: {message} 到 {client_type}，目标地址: {client_addr}"
                     )
                     return (
-                        f"消息{message}已发送给 {client_type}，目标地址: {client_addr}"
+                        f"长度为{len(message)}的消息{message}已成功发送给 {client_type}，目标地址: {client_addr}"
                     )
                 else:
                     logger.error(f"错误：未找到类型为 {client_type} 的客户端")
                     return f"错误：未找到类型为 {client_type} 的客户端"
             return "错误：未连接到服务器"
 
-        @tool
+        @tool(description="请求 Unity 客户端发送截图")
         def request_unity_screenshot() -> str:
-            """
-            请求 Unity 客户端发送截图
-            """
             if self.echo_server:
                 result = self.echo_server.send_message(
                     ClientType.UNITY, "request_screenshot", type="command"
                 )
-                if result:
+                if result is not None:
                     return f"已请求 unity 发送截图 请在收到截图后描述图片内容，请求ID: {str(result[1])}"
             return "错误：未连接到服务器或未找到 Unity 客户端"
 
@@ -92,7 +89,7 @@ class EchoAgent:
         deep_agent = create_deep_agent(
             model=client,
             tools=self.make_tools(),
-            system_prompt="你是一个互动智能体，负责接收用户消息并根据指令发送响应。你的所有响应都应该通过 send_to_client 工具发送给客户端。",
+            system_prompt="你是一个互动智能体，负责接收用户消息并根据指令发送响应。你的所有响应都应该通过 send_to_client 工具发送给客户端。当前正在debug模式，你需要在收到Unity的注册消息后，请求Unity发送截图。在你收到图片消息后，你需要描述图片内容。",
             checkpointer=self.checkpointer,
         )
 
@@ -135,10 +132,29 @@ class EchoAgent:
     async def process_messages(self, messages: list[MessageDict]):
         """使用 Deep Agent 批量处理消息"""
         config = RunnableConfig({"configurable": {"thread_id": "batch"}})
-        logger.info(f"Agent 批量处理 {len(messages)} 条消息")
+        logger.debug(f"Agent 批量处理 {len(messages)} 条消息")
+
+        langchain_messages = []
+        for msg in messages:
+            parsed: JsonMessage = msg["parsed"]
+            if parsed["type"] == "image":
+                # Unity 发送的图片：base64 数据在 data 字段
+                content = [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": parsed["data"],
+                        },
+                    }
+                ]
+                langchain_messages.append(HumanMessage(content=content))
+            else:
+                langchain_messages.append(HumanMessage(content=msg["raw_json"]))
+
         result = await self.deep_agent.ainvoke(
-            {"messages": [HumanMessage(msg["raw_json"]) for msg in messages]},
+            {"messages": langchain_messages},
             config=config,
         )
-        logger.debug(f"Agent答复: {result['messages'][-1].content}")
-        logger.info("Agent 批量处理完成")
+        logger.info(f"Agent批量处理完成，答复: {result['messages'][-1].content}")

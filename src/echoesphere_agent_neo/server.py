@@ -136,10 +136,8 @@ class EchoServer:
                 and conn.client_addr
                 and conn.client_type == client_type
             ):
-                payload = {"type": type, "data": message}
-                if type == "command":
-                    request_id = uuid.uuid4()
-                    payload["request_id"] = str(request_id)
+                request_id = uuid.uuid4()
+                payload = {"type": type, "data": message, "request_id": str(request_id)}
                 conn.send_json(payload)
                 logger.info(
                     f"向 {client_type} 发送 {type} 类型消息，消息内容: {message[:100]}"
