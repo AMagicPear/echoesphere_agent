@@ -10,7 +10,7 @@ from phoenix.otel import register
 # 配置日志
 LOG_FILE = f"logs/echoagent_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     handlers=[
         logging.StreamHandler(),

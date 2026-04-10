@@ -30,7 +30,7 @@ class LengthPrefixProtocol(asyncio.Protocol):
 
     @override
     def connection_made(self, transport: BaseTransport):
-        self.transport: asyncio.Transport = transport
+        self.transport: asyncio.Transport = transport  # ty:ignore[invalid-assignment]
         self.client_addr: ClientAddr = transport.get_extra_info("peername")
         logger.info(f"新客户端连接: {self.client_addr}")
         self.server.connections.add(self)

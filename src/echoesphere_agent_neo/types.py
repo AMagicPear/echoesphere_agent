@@ -1,5 +1,5 @@
 import enum
-from typing import TypedDict, NamedTuple
+from typing import TypedDict, NamedTuple, NotRequired
 
 class ClientAddr(NamedTuple):
     """用于存储客户端地址的元组类"""
@@ -19,9 +19,9 @@ class JsonMessage(TypedDict):
 
     type: str  # text | image | command | register
     data: str  # 文本内容或base64编码数据
-    client_type: ClientType | None = None  # register 时使用
-    request_id: str | None = None  # request/response 时使用
-    cmd: str | None = None  # request 时使用
+    client_type: NotRequired[ClientType]  # register 时使用
+    request_id: NotRequired[str]  # request/response 时使用
+    cmd: NotRequired[str]  # request 时使用
 
 
 class MessageDict(TypedDict):
