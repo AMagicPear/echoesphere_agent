@@ -1,6 +1,7 @@
 import enum
 from typing import TypedDict, NamedTuple, NotRequired
 
+
 class ClientAddr(NamedTuple):
     """用于存储客户端地址的元组类"""
 
@@ -30,3 +31,16 @@ class MessageDict(TypedDict):
     client: ClientAddr
     raw_json: str
     parsed: JsonMessage
+
+
+class EmotionState(enum.Enum):
+    LOST = "lost"  # 迷茫
+    EXPLORING = "exploring"  # 探索
+    RESONATING = "resonating"  # 共鸣
+    FREEDOM = "freedom"  # 自由
+
+
+class ChapterState(enum.Enum):
+    ORIGIN = "origin"  # 初域·未定之原
+    COLONY = "colony"  # 聚落群·彼方的光影之城
+    DEEPFLOW = "deepflow"  # 深流之径·未被触及的知识海
