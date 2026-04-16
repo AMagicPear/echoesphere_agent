@@ -67,9 +67,7 @@ class LengthPrefixProtocol(asyncio.Protocol):
                 logger.debug(f"收到来自 {self.client_addr} 的消息: {json_str[:200]}")
 
                 # 处理注册消息
-                if message_obj.get("type") == "register" and message_obj.get(
-                    "client_type"
-                ):
+                if message_obj["type"] == "register":
                     self.client_type = ClientType(message_obj["client_type"])
                     logger.info(f"客户端 {self.client_addr} 注册为 {self.client_type}")
 
