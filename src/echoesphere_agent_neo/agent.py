@@ -77,9 +77,9 @@ class EchoAgent:
         #     api_key=os.environ["MINIMAX_API_KEY"],  # ty:ignore[unknown-argument]
         # )
         client = ChatOpenAI(
-            model_name="qwen3.5",
-            base_url="http://192.168.3.251:5001/v1",  # ty:ignore[unknown-argument]
-            api_key="EMPTY",  # ty:ignore[unknown-argument]
+            model_name="qwen3.6-flash",
+            base_url=os.environ["DASHSCOPE_API_BASE"],  # ty:ignore[unknown-argument]
+            api_key=os.environ["DASHSCOPE_API_KEY"],  # ty:ignore[unknown-argument]
         )
 
         deep_agent = create_deep_agent(

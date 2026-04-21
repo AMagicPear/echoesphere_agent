@@ -13,16 +13,17 @@ class ClientType(enum.Enum):
     MEDIAPIPE = "mediapipe"  # MediaPipe (手势+面部)
     UNITY = "unity"
     RASPBERRY_PI = "raspberry_pi"
+    DEBUG = "debug"  # Debug 客户端
 
 
 class JsonMessage(TypedDict):
     """用于存储JSON消息的字典类"""
 
     type: str  # text | image | command | register
-    data: str  # 文本内容或base64编码数据
+    data: str  # 文本内容或base64编码数据，command 时为命令内容
     client_type: NotRequired[ClientType]  # register 时使用
     request_id: NotRequired[str]  # request/response 时使用
-    cmd: NotRequired[str]  # request 时使用
+    relay_to: NotRequired[str]  # 直接转发 如果含本字段 则此消息直接转发给目标客户端
 
 
 class MessageDict(TypedDict):

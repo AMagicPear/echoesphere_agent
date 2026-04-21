@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from echoesphere_agent_neo.agent import EchoAgent
 from echoesphere_agent_neo.server import EchoServer, MessageDict
 import logging
@@ -6,6 +7,9 @@ from datetime import datetime
 from opentelemetry import trace
 from openinference.instrumentation.langchain import LangChainInstrumentor
 from phoenix.otel import register
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # 配置日志
 LOG_FILE = f"logs/echoagent_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"

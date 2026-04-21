@@ -71,23 +71,49 @@ class LengthPrefixProtocol(asyncio.Protocol):
                     self.client_type = ClientType(message_obj["client_type"])
                     logger.info(f"客户端 {self.client_addr} 注册为 {self.client_type}")
 
-                assert self.client_addr is not None
-                self.message_queue.put_nowait(
-                    MessageDict(
-                        client=self.client_addr,
-                        raw_json=json_str,
-                        parsed=message_obj,
+                # Relay 协议：如果包含 relay_to 字段，直接转发给目标客户端
+                if "relay_to" in message_obj:
+                    relay_target = message_obj["relay_to"]
+                    self._do_relay(message_obj, relay_target)
+                else:
+                    # 普通消息放入队列
+                    assert self.client_addr is not None
+                    self.message_queue.put_nowait(
+                        MessageDict(
+                            client=self.client_addr,
+                            raw_json=json_str,
+                            parsed=message_obj,
+                        )
                     )
-                )
             except (UnicodeDecodeError, json.JSONDecodeError) as e:
                 logger.error(f"消息解析失败: {e}, 原始数据: {message_data[:100]}")
+
+    def _do_relay(self, message_obj: JsonMessage, relay_to: str):
+        """将消息直接转发给目标客户端（relay 协议）"""
+        # relay_to 可以是 client_type 字符串（如 "mediapipe"）或 "all"（广播）
+        try:
+            target_type = ClientType(relay_to)
+        except ValueError:
+            logger.warning(f"未知的 relay_to 类型: {relay_to}")
+            return
+
+        relay_count = 0
+        for conn in self.server.connections:
+            if conn.client_type == target_type and conn != self:
+                conn.send_json(message_obj)
+                relay_count += 1
+
+        if relay_count == 0:
+            logger.warning(f"Relay 失败: 未找到类型为 {relay_to} 的客户端")
+        else:
+            logger.info(f"Relay 消息到 {relay_to}: {relay_count} 个客户端")
 
     @override
     def connection_lost(self, exc):
         logger.info(f"客户端断开: {self.client_addr}")
         self.server.connections.discard(self)
 
-    def send_json(self, obj: dict):
+    def send_json(self, obj: dict | JsonMessage):
         """发送 JSON 消息（长度前缀 + UTF-8 JSON）"""
         if self.transport is None:
             return

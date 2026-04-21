@@ -34,26 +34,28 @@ class MockMediaPipeClient:
         print("[MediaPipe模拟] 已发送注册消息")
 
     async def _send_register(self) -> None:
-        msg = json.dumps({"type": "register", "client_type": "mediapipe"}, ensure_ascii=False)
+        msg = json.dumps(
+            {"type": "register", "client_type": "mediapipe"}, ensure_ascii=False
+        )
         data = msg.encode("utf-8")
         total_length = 1 + len(data)
-        self.writer.write(struct.pack("!i", total_length))
-        self.writer.write(bytes([MessageType.REGISTER]) + data)
-        await self.writer.drain()
+        self.writer.write(struct.pack("!i", total_length))  # ty:ignore[unresolved-attribute]
+        self.writer.write(bytes([MessageType.REGISTER]) + data)  # ty:ignore[unresolved-attribute]
+        await self.writer.drain()  # ty:ignore[unresolved-attribute]
 
     async def handle_messages(self) -> None:
         """处理来自 Agent 的消息（MediaPipe 只接收命令，忽略请求）"""
         while True:
             try:
-                length_data = await self.reader.readexactly(4)
+                length_data = await self.reader.readexactly(4)  # ty:ignore[unresolved-attribute]
                 total_length = struct.unpack("!i", length_data)[0]
-                data = await self.reader.readexactly(total_length)
+                data = await self.reader.readexactly(total_length)  # ty:ignore[unresolved-attribute]
                 msg_type = data[0]
                 payload = data[1:]
                 if msg_type == MessageType.COMMAND:
                     print(f"[MediaPipe模拟] 收到 COMMAND: {payload.decode('utf-8')}")
                 elif msg_type == MessageType.REQUEST:
-                    print(f"[MediaPipe模拟] 收到 REQUEST（忽略）")
+                    print("[MediaPipe模拟] 收到 REQUEST（忽略）")
             except asyncio.IncompleteReadError:
                 break
 
@@ -80,7 +82,6 @@ async def test_screenshot_flow():
     mp_client = MockMediaPipeClient()
     await mp_client.connect()
 
-
     # 等待 Agent 激活
     print("[测试] 等待 Agent 激活...")
     for _ in range(20):
@@ -101,7 +102,11 @@ async def test_screenshot_flow():
     print("[测试] 模拟触发 Agent 决策流程...")
 
     # 手动调用 agent.process_event 触发决策
-    from echoesphere_agent.events import PerceptionEvent, EventSource, PerceptionEventType
+    from echoesphere_agent.events import (
+        PerceptionEvent,
+        EventSource,
+        PerceptionEventType,
+    )
 
     event = PerceptionEvent(
         source=EventSource.HAND,
@@ -115,7 +120,9 @@ async def test_screenshot_flow():
     decision = server.agent.process_event(event)
 
     if decision:
-        print(f"[测试] 决策完成: {decision.reasoning[:200] if decision.reasoning else '(empty)'}")
+        print(
+            f"[测试] 决策完成: {decision.reasoning[:200] if decision.reasoning else '(empty)'}"
+        )
     else:
         print("[测试] 无需决策（可能 Agent 未启用截图工具）")
 
