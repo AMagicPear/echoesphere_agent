@@ -3,10 +3,8 @@ from echoesphere_agent_neo.agent import EchoAgent
 from echoesphere_agent_neo.server import EchoServer, MessageDict
 import logging
 import asyncio
+import argparse
 from datetime import datetime
-from opentelemetry import trace
-from openinference.instrumentation.langchain import LangChainInstrumentor
-from phoenix.otel import register
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -23,15 +21,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger("Agent")
 
-async def main():
-    # 配置跟踪 用于debug智能体行为 面板见 http://localhost:6006
-    tracer_provider = register(
-        project_name="echoesphere-debug",
-        auto_instrument=False,
-    )
+async def main(skip_trace: bool = False):
+    if not skip_trace:
+        from opentelemetry import trace
+        from openinference.instrumentation.langchain import LangChainInstrumentor
+        from phoenix.otel import register
 
-    LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
-    _tracer = trace.get_tracer(__name__)
+        tracer_provider = register(
+            project_name="echoesphere-debug",
+            auto_instrument=False,
+        )
+        LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
+        _tracer = trace.get_tracer(__name__)
 
     # 创建全局消息队列（无大小限制）
     message_queue: asyncio.Queue[MessageDict] = asyncio.Queue()
@@ -57,4 +58,7 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--skip-trace", action="store_true")
+    args = parser.parse_args()
+    asyncio.run(main(skip_trace=args.skip_trace))
