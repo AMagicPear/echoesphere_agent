@@ -56,7 +56,7 @@ class EchoAgent:
         @tool(description="请求 Unity 客户端发送截图")
         def request_unity_screenshot() -> str:
             result = echo_server.send_message(
-                ClientType.UNITY, "request_screenshot", type="command"
+                ClientType.UNITY, "request:screenshot", type="command"
             )
             if result is not None:
                 return f"已请求 unity 发送截图 请在收到截图后描述图片内容，请求ID: {str(result[1])}"
