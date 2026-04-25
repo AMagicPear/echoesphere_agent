@@ -5,6 +5,10 @@ from echoesphere_agent_neo.types import MessageDict, ClientType, JsonMessage
 from echoesphere_agent_neo.server import EchoServer
 import asyncio
 import logging
+import os
+import requests
+import subprocess
+import tempfile
 from langchain_core.tools import tool
 from deepagents import create_deep_agent
 from langgraph.checkpoint.memory import InMemorySaver
@@ -63,18 +67,44 @@ class EchoAgent:
             else:
                 return "错误：未找到 Unity 客户端"
 
-        return [send_to_client, request_unity_screenshot]
+        @tool(description="使用 MiniMax TTS 将文本转换为语音并播放")
+        def speak(text: str) -> str:
+            """将文本转为语音并播放，适用于简短句子（建议50字以内）。"""
+            url = "https://api.minimaxi.com/v1/t2a_v2"
+            headers = {
+                "Authorization": f"Bearer {os.environ['MINIMAX_API_KEY']}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "model": "speech-2.8-turbo",
+                "text": text,
+                "stream": False,
+                "voice_setting": {"voice_id": "Chinese (Mandarin)_Warm_Girl"},
+                "audio_setting": {"sample_rate": 32000, "format": "mp3"},
+            }
+            response = requests.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            hex_audio = response.json()["data"]["audio"]
+            audio_bytes = bytes.fromhex(hex_audio)
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                f.write(audio_bytes)
+                tmp_path = f.name
+            subprocess.run(["afplay", tmp_path])
+            os.unlink(tmp_path)
+            return f"已播放语音: {text}"
+
+        return [send_to_client, request_unity_screenshot, speak]
 
     def _setup_agent(self) -> CompiledStateGraph:
         """初始化 Deep Agent"""
         import os
-        from langchain_anthropic import ChatAnthropic
+        # from langchain_anthropic import ChatAnthropic
         from langchain_openai import ChatOpenAI
 
         # client = ChatAnthropic(
         #     model_name="MiniMax-M2.7",
         #     base_url="https://api.minimaxi.com/anthropic",  # ty:ignore[unknown-argument]
-        #     api_key=os.environ["MINIMAX_API_KEY"],  # ty:ignore[unknown-argument]
+        #     api_key=os.environ["MINIMAX_API_KEY_CP"],  # ty:ignore[unknown-argument]
         # )
         client = ChatOpenAI(
             model_name="qwen3.6-flash",
@@ -85,7 +115,7 @@ class EchoAgent:
         deep_agent = create_deep_agent(
             model=client,
             tools=self.make_tools(self.echo_server),
-            system_prompt="你是一个互动智能体，负责接收用户消息并根据指令发送响应。你的所有响应都应该通过 send_to_client 工具发送给客户端。当前正在debug模式，你需要在收到Unity的注册消息后，请求Unity发送截图。在你收到图片消息后，你需要描述图片内容。",
+            system_prompt="你是一个互动智能体，负责接收用户消息并根据指令发送响应。你的所有响应都应该通过 send_to_client 工具发送给客户端。你还可以使用 speak 工具将文本转为语音并播放，适用于简短句子的语音回复（建议50字以内）。当前正在debug模式，你需要在收到Unity的注册消息后，请求Unity发送截图。在你收到图片消息后，你需要描述图片内容。",
             checkpointer=self.checkpointer,
         )
 
