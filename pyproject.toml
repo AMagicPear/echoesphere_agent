@@ -1,7 +1,7 @@
 [project]
 name = "echoesphere-agent"
 version = "0.2.0"
-description = "EchoSphere Agent"
+description = "Echoesphere Agent"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

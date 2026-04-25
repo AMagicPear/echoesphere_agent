@@ -1,4 +1,4 @@
-# EchoSphere Agent 调试指南
+# Echoesphere Agent 调试指南
 
 ## 调试阶段
 
@@ -10,7 +10,7 @@
 
 **目标**：验证 TCP 连接和注册协议正常工作
 
-### 步骤 1.1：启动 EchoSphere Agent
+### 步骤 1.1：启动 Echoesphere Agent
 
 ```bash
 cd /Users/amagicpear/projects/毕业设计/echoesphere_agent

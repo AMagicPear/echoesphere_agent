@@ -1,6 +1,6 @@
 """测试截图请求-响应流程
 
-启动 EchoSphere Agent，连接 MediaPipe 模拟客户端和真实的 Unity 客户端，
+启动 Echoesphere Agent，连接 MediaPipe 模拟客户端和真实的 Unity 客户端，
 测试 Agent 主动请求截图的完整流程。
 
 运行方式:
@@ -15,7 +15,7 @@ import sys
 import time
 # from pathlib import Path
 
-from echoesphere_agent.run import EchoSphereServer, MessageType
+from echoesphere_agent.run import EchoesphereServer, MessageType
 
 
 class MockMediaPipeClient:
@@ -68,11 +68,11 @@ class MockMediaPipeClient:
 async def test_screenshot_flow():
     """测试截图请求-响应完整流程"""
     print("=" * 60)
-    print("EchoSphere Agent 截图请求-响应流程测试")
+    print("Echoesphere Agent 截图请求-响应流程测试")
     print("=" * 60)
 
     # 启动 Agent Server
-    server = EchoSphereServer(host="127.0.0.1", port=65432)
+    server = EchoesphereServer(host="127.0.0.1", port=65432)
 
     # 在后台启动服务器
     server_task = asyncio.create_task(server.start())

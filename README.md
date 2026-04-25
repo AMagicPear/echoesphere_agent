@@ -1,4 +1,4 @@
-# EchoSphere Agent
+# Echoesphere Agent
 
 毕业设计项目：多模态展览交互系统的智能决策模块。
 

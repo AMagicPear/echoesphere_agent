@@ -1,8 +1,8 @@
-# EchoSphere Agent 迁移计划：从 smolagents 到 LangChain/DeepAgents
+# Echoesphere Agent 迁移计划：从 smolagents 到 LangChain/DeepAgents
 
 ## 上下文
 
-EchoSphere Agent 是一个多模态展览交互系统，目前有两个实现：
+Echoesphere Agent 是一个多模态展览交互系统，目前有两个实现：
 1. **旧实现** (`src/echoesphere_agent/`): 基于 smolagents 框架，功能完整但框架已标记为 deprecated
 2. **新实现** (`src/echoesphere_agent_neo/`): 基于 LangChain/DeepAgents 框架，进行中但功能不完整
 

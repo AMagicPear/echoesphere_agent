@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-# EchoSphere Agent
+# Echoesphere Agent
 
 毕业设计项目：多模态展览交互系统
 
