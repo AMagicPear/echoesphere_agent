@@ -16,6 +16,7 @@ from deepagents.graph import CompiledStateGraph
 
 logger = logging.getLogger("Agent")
 
+ECHO_AGENT_SYSTEM_PROMPT = """你是一个互动智能体，负责接收用户消息并根据指令发送响应。你的所有响应都应该通过 send_to_client 工具发送给客户端。你还可以使用 speak 工具将文本转为语音并播放，适用于简短句子的语音回复（建议50字以内）。当前正在debug模式，你需要在收到Unity的注册消息后，请求Unity发送截图。在你收到图片消息后，你需要描述图片内容。"""
 
 class EchoAgent:
     """
@@ -63,7 +64,7 @@ class EchoAgent:
                 ClientType.UNITY, "request:screenshot", type="command"
             )
             if result is not None:
-                return f"已请求 unity 发送截图 请在收到截图后描述图片内容，请求ID: {str(result[1])}"
+                return f"已请求 unity 发送截图 请求ID: {str(result[1])}"
             else:
                 return "错误：未找到 Unity 客户端"
 
@@ -115,7 +116,7 @@ class EchoAgent:
         deep_agent = create_deep_agent(
             model=client,
             tools=self.make_tools(self.echo_server),
-            system_prompt="你是一个互动智能体，负责接收用户消息并根据指令发送响应。你的所有响应都应该通过 send_to_client 工具发送给客户端。你还可以使用 speak 工具将文本转为语音并播放，适用于简短句子的语音回复（建议50字以内）。当前正在debug模式，你需要在收到Unity的注册消息后，请求Unity发送截图。在你收到图片消息后，你需要描述图片内容。",
+            system_prompt=ECHO_AGENT_SYSTEM_PROMPT,
             checkpointer=self.checkpointer,
         )
 
