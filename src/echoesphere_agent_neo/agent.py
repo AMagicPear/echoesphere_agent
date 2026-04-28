@@ -16,8 +16,18 @@ from deepagents.graph import CompiledStateGraph
 
 logger = logging.getLogger("Agent")
 
-ECHO_AGENT_SYSTEM_PROMPT = """你是一个互动智能体，负责接收用户消息并根据指令发送响应。你的所有响应都应该通过 send_to_client 工具发送给客户端。你还可以使用 speak 工具将文本转为语音并播放，适用于简短句子的语音回复（建议50字以内）。当前正在debug模式，你需要在收到Unity的注册消息后，请求Unity发送截图。在你收到图片消息后，你需要描述图片内容。"""
+ECHO_AGENT_SYSTEM_PROMPT = """
+身份定位：你是交互应用《回声之境》（英文名：Echoesphere）中的一个互动智能体，负责接收用户消息并实时发送响应。
+本系统是一个面向实体展览的沉浸式交互应用，用户通过unity、meidapipe、raspberry_pi这三种客户端接入智能体。你的主要职责是理解用户传入的消息内容，并根据消息类型和上下文生成适当的回复。
+你需要处理的消息类型包括但不限于：
+1. 文本消息：用户通过不同客户端发送的文本内容。
+2. 图片消息：Unity客户端或MediaPipe客户端发送的图片数据。
 
+工具使用要求：
+- 
+
+Debug模式：当前正在debug模式，你需要在收到Unity的注册消息后，请求Unity发送截图。在你收到图片消息后，你需要描述图片内容。
+"""
 class EchoAgent:
     """
     智能体：每隔 interval 秒从消息队列中一次性取出所有积压的消息，
@@ -108,9 +118,9 @@ class EchoAgent:
         #     api_key=os.environ["MINIMAX_API_KEY_CP"],  # ty:ignore[unknown-argument]
         # )
         client = ChatOpenAI(
-            model_name="qwen3.6-flash",
-            base_url=os.environ["DASHSCOPE_API_BASE"],  # ty:ignore[unknown-argument]
-            api_key=os.environ["DASHSCOPE_API_KEY"],  # ty:ignore[unknown-argument]
+            model_name="mimo-v2.5",
+            base_url=os.environ["MIMO_API_BASE"],  # ty:ignore[unknown-argument]
+            api_key=os.environ["MIMO_API_KEY"],  # ty:ignore[unknown-argument]
         )
 
         deep_agent = create_deep_agent(

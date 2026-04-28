@@ -25,3 +25,6 @@ dev = [
     "pytest>=9.0.2",
     "tavily-python>=0.7.23",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/echoesphere_agent_neo"]

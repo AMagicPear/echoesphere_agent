@@ -71,8 +71,8 @@ class LengthPrefixProtocol(asyncio.Protocol):
                     self.client_type = ClientType(message_obj["client_type"])
                     logger.info(f"客户端 {self.client_addr} 注册为 {self.client_type}")
 
-                # Relay 协议：如果包含 relay_to 字段，直接转发给目标客户端
-                if "relay_to" in message_obj:
+                # Relay 协议：如果包含 relay_to 字段且非空，直接转发给目标客户端
+                if message_obj.get("relay_to"):
                     relay_target = message_obj["relay_to"]
                     self._do_relay(message_obj, relay_target)
                 else:
