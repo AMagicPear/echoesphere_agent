@@ -104,7 +104,50 @@ class EchoAgent:
             os.unlink(tmp_path)
             return f"已播放语音: {text}"
 
-        return [send_to_client, request_unity_screenshot, speak]
+        @tool(description="控制实体 LED 灯光。向树莓派发送灯光控制指令以改变灯光模式、颜色和亮度")
+        def control_lights(mode: str, color: str = "", note: str = "") -> str:
+            """控制实体 LED 灯阵。
+
+            Args:
+                mode: 灯光模式。基本模式：chase（循环点亮）、solid（实色，需指定color）、
+                      rainbow（彩虹渐变）、breathing（呼吸）；
+                      音符反馈模式：gain_note（获得音符）、play_note（演奏音符）
+                color: solid模式的颜色，如 warm_amber、cool_blue、purple、gold 等
+                note: gain_note/play_note 模式下的音符名称，可选 waterdrop、crossing、tide、breeze
+            """
+            command = f"lights:{mode}"
+            if color:
+                command += f":{color}"
+            if note:
+                command += f":{note}"
+            client_addr = echo_server.send_message(ClientType.RASPBERRY_PI, command, type="command")
+            if client_addr:
+                msg = f"灯光已切换至{mode}模式"
+                if color:
+                    msg += f"，颜色={color}"
+                if note:
+                    msg += f"，音符={note}"
+                return msg
+            else:
+                return "错误：未找到树莓派客户端，灯光控制失败"
+
+        @tool(description="播放音乐或触发音频效果。向 Unity 发送音乐播放指令")
+        def play_music(action: str) -> str:
+            """控制交互应用中的音乐和音频播放。
+
+            Args:
+                action: 音乐控制动作，格式为 "类别:操作"。
+                        演奏音符：play_note:waterdrop、play_note:crossing、play_note:tide、play_note:breeze；
+                        情绪音乐：set_mood:calm、set_mood:tense、set_mood:warm
+            """
+            command = f"music:{action}"
+            client_addr = echo_server.send_message(ClientType.UNITY, command, type="command")
+            if client_addr:
+                return f"音乐指令已发送: {action}"
+            else:
+                return "错误：未找到 Unity 客户端，音乐控制失败"
+
+        return [send_to_client, request_unity_screenshot, speak, control_lights, play_music]
 
     def _setup_agent(self) -> CompiledStateGraph:
         """初始化 Deep Agent"""
