@@ -24,10 +24,12 @@ ECHO_AGENT_SYSTEM_PROMPT = """
 2. 图片消息：Unity客户端或MediaPipe客户端发送的图片数据。
 
 工具使用要求：
-- 
-
-Debug模式：当前正在debug模式，你需要在收到Unity的注册消息后，请求Unity发送截图。在你收到图片消息后，你需要描述图片内容。
+- 修改幽灵山颜色/强度时必须使用 control_ghost_mountain 工具，颜色名称需转换为6位hex（如蓝色=0000FF，红色=FF0000）
+- 需要确认Unity当前状态时可使用 request_unity_screenshot 请求截图
+- 必须使用提供的工具来完成操作，不要自行构造JSON消息通过 send_to_client 发送。仅当发送纯文本而非指令时才使用 send_to_client 工具。
 """
+
+
 class EchoAgent:
     """
     智能体：每隔 interval 秒从消息队列中一次性取出所有积压的消息，
@@ -104,7 +106,9 @@ class EchoAgent:
             os.unlink(tmp_path)
             return f"已播放语音: {text}"
 
-        @tool(description="控制实体 LED 灯光。向树莓派发送灯光控制指令以改变灯光模式、颜色和亮度")
+        @tool(
+            description="控制实体 LED 灯光。向树莓派发送灯光控制指令以改变灯光模式、颜色和亮度"
+        )
         def control_lights(mode: str, color: str = "", note: str = "") -> str:
             """控制实体 LED 灯阵。
 
@@ -120,7 +124,9 @@ class EchoAgent:
                 command += f":{color}"
             if note:
                 command += f":{note}"
-            client_addr = echo_server.send_message(ClientType.RASPBERRY_PI, command, type="command")
+            client_addr = echo_server.send_message(
+                ClientType.RASPBERRY_PI, command, type="command"
+            )
             if client_addr:
                 msg = f"灯光已切换至{mode}模式"
                 if color:
@@ -130,6 +136,27 @@ class EchoAgent:
                 return msg
             else:
                 return "错误：未找到树莓派客户端，灯光控制失败"
+
+        @tool(
+            description="控制幽灵山（GhostMountain）的视觉特效。当需要修改幽灵山的颜色、抖动强度、菲涅尔效果时使用此工具。例如：改颜色、调强度、变色、设置wobble等"
+        )
+        def control_ghost_mountain(action: str, value: str) -> str:
+            """控制幽灵山（GhostMountain）的材质特效参数。
+
+            使用此工具来改变幽灵山的视觉外观。必须将颜色名称转换为6位hex值（如红色=FF0000，蓝色=0000FF，绿色=00FF00，紫色=800080，金色=FFD700，橙色=FFA500）。
+
+            Args:
+                action: 控制目标。可选值：intensity（抖动强度，可超过1）、color（菲涅尔边缘光颜色，需传6位hex）
+                value: 参数值。intensity时为浮点数如0.5或2.0；color时为6位hex字符串如FF0000，不要带#号
+            """
+            command = f"ghost_mountain:{action}:{value}"
+            client_addr = echo_server.send_message(
+                ClientType.UNITY, command, type="command"
+            )
+            if client_addr:
+                return f"幽灵山 {action} 已设置为 {value}"
+            else:
+                return "错误：未找到 Unity 客户端，幽灵山控制失败"
 
         @tool(description="播放音乐或触发音频效果。向 Unity 发送音乐播放指令")
         def play_music(action: str) -> str:
@@ -141,17 +168,27 @@ class EchoAgent:
                         情绪音乐：set_mood:calm、set_mood:tense、set_mood:warm
             """
             command = f"music:{action}"
-            client_addr = echo_server.send_message(ClientType.UNITY, command, type="command")
+            client_addr = echo_server.send_message(
+                ClientType.UNITY, command, type="command"
+            )
             if client_addr:
                 return f"音乐指令已发送: {action}"
             else:
                 return "错误：未找到 Unity 客户端，音乐控制失败"
 
-        return [send_to_client, request_unity_screenshot, speak, control_lights, play_music]
+        return [
+            send_to_client,
+            request_unity_screenshot,
+            speak,
+            control_ghost_mountain,
+            control_lights,
+            play_music,
+        ]
 
     def _setup_agent(self) -> CompiledStateGraph:
         """初始化 Deep Agent"""
         import os
+
         # from langchain_anthropic import ChatAnthropic
         from langchain_openai import ChatOpenAI
 
@@ -161,9 +198,9 @@ class EchoAgent:
         #     api_key=os.environ["MINIMAX_API_KEY_CP"],  # ty:ignore[unknown-argument]
         # )
         client = ChatOpenAI(
-            model_name="mimo-v2.5",
-            base_url=os.environ["MIMO_API_BASE"],  # ty:ignore[unknown-argument]
-            api_key=os.environ["MIMO_API_KEY"],  # ty:ignore[unknown-argument]
+            model_name="qwen3.6-flash",
+            base_url=os.environ["DASHSCOPE_API_BASE"],  # ty:ignore[unknown-argument]
+            api_key=os.environ["DASHSCOPE_API_KEY"],  # ty:ignore[unknown-argument]
         )
 
         deep_agent = create_deep_agent(
